@@ -277,8 +277,9 @@
       <a href="#pricing">Hinnoittelu</a>
       <a href="#signup">Aloita</a>
       <a href="https://getjust.fi" target="_blank" rel="noopener">getjust.fi</a>
+      <a href="/login">Kirjaudu</a>
     </div>
-    <a href="#signup" class="nav-cta">Aloita ilmaiseksi</a>
+    <a href="/login" class="nav-cta">Aloita ilmaiseksi</a>
   </div>
 </nav>
 
@@ -846,11 +847,10 @@ function nextStep(step) {
 
 function finishSignup() {
   const btns = document.querySelectorAll('#step-4 button');
-  if (btns.length) btns[0].textContent = 'Kiitos! Tili luotu ✓';
+  if (btns.length) btns[0].textContent = 'Kiitos! Ohjataan kirjautumiseen…';
 
   setTimeout(() => {
-    alert('Demo valmis! Todellisessa versiossa sinut ohjattaisiin dashboardiin osoitteessa getjustpay.com.\n\nTervetuloa Just.Payhin — yksinkertaista ja älykästä laskutusta.');
-    // In real app: window.location.href = '/dashboard'
+    window.location.href = '/login';
   }, 900);
 }
 

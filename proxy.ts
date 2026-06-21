@@ -33,6 +33,10 @@ export async function proxy(request: NextRequest) {
   const isAuthRoute =
     url.pathname.startsWith('/login') || url.pathname.startsWith('/auth/')
 
+  if (!user && url.pathname === '/') {
+    return NextResponse.rewrite(new URL('/landing.html', request.url))
+  }
+
   if (!user && !isAuthRoute) {
     url.pathname = '/login'
     return NextResponse.redirect(url)
