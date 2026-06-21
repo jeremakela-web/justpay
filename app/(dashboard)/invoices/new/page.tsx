@@ -7,7 +7,8 @@ import { createClient } from '@/lib/supabase/client'
 import type { Customer, VatRule, Organization } from '@/types/database'
 import { generateInvoiceNumber } from '@/lib/utils/invoice-number'
 import { generateFinnishReferenceNumber } from '@/lib/utils/reference-number'
-import { Plus, Trash2, ArrowLeft } from 'lucide-react'
+import { Plus, Trash2, ArrowLeft, ExternalLink, Sparkles } from 'lucide-react'
+import type { AddonSuggestion } from '@/app/api/addon-suggestions/route'
 
 interface LineItem {
   id: string
@@ -40,6 +41,10 @@ export default function NewInvoicePage() {
   const [vatRules, setVatRules] = useState<VatRule[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showAddons, setShowAddons] = useState(false)
+  const [addonSuggestions, setAddonSuggestions] = useState<AddonSuggestion[]>([])
+  const [addonLoading, setAddonLoading] = useState(false)
+  const [addonError, setAddonError] = useState<string | null>(null)
 
   const [customerId, setCustomerId] = useState('')
   const [issueDate, setIssueDate] = useState(todayStr())
@@ -161,6 +166,41 @@ export default function NewInvoicePage() {
       })
     )
   }
+
+  const fetchAddonSuggestions = useCallback(async () => {
+    if (!customerId || totalAmount <= 0) return
+    const customer = customers.find((c) => c.id === customerId)
+    setAddonLoading(true)
+    setAddonError(null)
+    setAddonSuggestions([])
+    try {
+      const res = await fetch('/api/addon-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          total_amount: Math.round(totalAmount * 100) / 100,
+          due_date: dueDate,
+          customer_type: customer?.type ?? 'company',
+        }),
+      })
+      const data = await res.json()
+      if (data.error && (!data.recommendations || data.recommendations.length === 0)) {
+        setAddonError(data.error)
+      } else {
+        setAddonSuggestions(data.recommendations ?? [])
+      }
+    } catch {
+      setAddonError('Suositusten haku epäonnistui')
+    } finally {
+      setAddonLoading(false)
+    }
+  }, [customerId, totalAmount, dueDate, customers])
+
+  useEffect(() => {
+    if (showAddons && customerId && totalAmount > 0) {
+      fetchAddonSuggestions()
+    }
+  }, [showAddons]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
     if (!customerId) {
@@ -430,6 +470,77 @@ export default function NewInvoicePage() {
             placeholder="Valinnainen viesti asiakkaalle..."
             className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 resize-none"
           />
+        </div>
+
+        {/* Addon suggestions */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showAddons}
+              onChange={(e) => setShowAddons(e.target.checked)}
+              className="w-4 h-4 rounded accent-green-500"
+            />
+            <span className="text-sm text-zinc-300 flex items-center gap-1.5">
+              <Sparkles size={14} className="text-green-400" />
+              Näytä lisäpalveluvaihtoehdot tälle laskulle
+            </span>
+          </label>
+
+          {showAddons && (
+            <div className="mt-4">
+              {!customerId || totalAmount <= 0 ? (
+                <p className="text-sm text-zinc-500">
+                  Valitse asiakas ja lisää laskurivit ensin.
+                </p>
+              ) : addonLoading ? (
+                <div className="flex items-center gap-2 text-sm text-zinc-400">
+                  <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                  Haetaan AI-suosituksia…
+                </div>
+              ) : addonError ? (
+                <p className="text-sm text-zinc-500">{addonError}</p>
+              ) : addonSuggestions.length === 0 ? (
+                <p className="text-sm text-zinc-500">
+                  Ei sopivia lisäpalveluita juuri nyt.
+                </p>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {addonSuggestions.map((s, i) => (
+                    <div
+                      key={i}
+                      className="bg-zinc-800 border border-zinc-700 rounded-lg p-4 flex flex-col gap-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-sm font-medium text-white leading-snug">
+                          {s.provider_name}
+                        </span>
+                        <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-zinc-700 text-zinc-400 capitalize">
+                          {s.category === 'insurance'
+                            ? 'Vakuutus'
+                            : s.category === 'collection'
+                            ? 'Perintä'
+                            : 'Rahoitus'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-400 leading-relaxed flex-1">
+                        {s.reasoning}
+                      </p>
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300 transition-colors mt-auto"
+                      >
+                        Lue lisää
+                        <ExternalLink size={11} />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {error && (
