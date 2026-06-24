@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { Invoice, InvoiceLine, Organization, Customer } from '@/types/database'
 import { formatReferenceNumber } from '@/lib/utils/reference-number'
-import { ArrowLeft, Printer, CheckCircle, Send, XCircle, Copy, Check } from 'lucide-react'
+import { ArrowLeft, Printer, CheckCircle, Send, XCircle, Copy, Check, FileDown, Mail } from 'lucide-react'
 
 const STATUS_LABELS: Record<Invoice['status'], string> = {
   draft: 'Luonnos',
@@ -49,6 +49,9 @@ export default function InvoiceDetailPage() {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [sendSuccess, setSendSuccess] = useState(false)
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -114,6 +117,27 @@ export default function InvoiceDetailPage() {
     setUpdating(false)
   }
 
+  const handleSendEmail = async () => {
+    if (!invoice) return
+    setSending(true)
+    setSendError(null)
+    setSendSuccess(false)
+    try {
+      const res = await fetch(`/api/invoices/${invoice.id}/send-email`, { method: 'POST' })
+      const data = await res.json() as { success?: boolean; error?: string }
+      if (!res.ok || data.error) {
+        setSendError(data.error ?? 'Lähetys epäonnistui')
+      } else {
+        setSendSuccess(true)
+        setInvoice((prev) => prev ? { ...prev, status: 'sent' } : prev)
+      }
+    } catch {
+      setSendError('Lähetys epäonnistui')
+    } finally {
+      setSending(false)
+    }
+  }
+
   const copyRefNumber = async () => {
     if (!invoice) return
     await navigator.clipboard.writeText(invoice.reference_number)
@@ -165,6 +189,34 @@ export default function InvoiceDetailPage() {
             <Printer size={15} />
             Tulosta
           </button>
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+          >
+            <FileDown size={15} />
+            Lataa PDF
+          </button>
+
+          {(invoice.status === 'draft' || invoice.status === 'sent') && (
+            <button
+              onClick={handleSendEmail}
+              disabled={sending || !customer?.email}
+              title={!customer?.email ? 'Asiakkaalla ei ole sähköpostiosoitetta' : undefined}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {sending ? (
+                <>
+                  <div className="w-3.5 h-3.5 border border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                  Lähetetään…
+                </>
+              ) : (
+                <>
+                  <Mail size={15} />
+                  Lähetä sähköpostitse
+                </>
+              )}
+            </button>
+          )}
 
           {invoice.status === 'draft' && (
             <>
@@ -220,6 +272,17 @@ export default function InvoiceDetailPage() {
           )}
         </div>
       </div>
+
+      {sendSuccess && (
+        <div className="mb-4 px-4 py-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-sm text-emerald-400 no-print">
+          Lasku lähetetty sähköpostitse osoitteeseen {customer?.email}. Tila päivitetty → Lähetetty.
+        </div>
+      )}
+      {sendError && (
+        <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-400 no-print">
+          {sendError}
+        </div>
+      )}
 
       {/* Invoice document */}
       <div className="bg-white text-gray-900 rounded-xl shadow-2xl overflow-hidden">
