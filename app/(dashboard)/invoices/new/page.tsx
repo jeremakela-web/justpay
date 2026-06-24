@@ -47,6 +47,7 @@ export default function NewInvoicePage() {
   const [imageMediaType, setImageMediaType] = useState<string>('image/jpeg')
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState<string | null>(null)
+  const [pricesIncludeVat, setPricesIncludeVat] = useState(false)
   const [showAddons, setShowAddons] = useState(false)
   const [addonSuggestions, setAddonSuggestions] = useState<AddonSuggestion[]>([])
   const [addonLoading, setAddonLoading] = useState(false)
@@ -125,8 +126,16 @@ export default function NewInvoicePage() {
   const computed = lines.map((l) => {
     const qty = parseFloat(l.quantity) || 0
     const price = parseFloat(l.unit_price) || 0
-    const lineTotal = qty * price
-    const vatAmount = lineTotal * (l.vat_rate / 100)
+    let lineTotal: number
+    let vatAmount: number
+    if (pricesIncludeVat) {
+      const netPrice = price / (1 + l.vat_rate / 100)
+      lineTotal = qty * netPrice
+      vatAmount = lineTotal * (l.vat_rate / 100)
+    } else {
+      lineTotal = qty * price
+      vatAmount = lineTotal * (l.vat_rate / 100)
+    }
     return { ...l, qty, price, lineTotal, vatAmount }
   })
 
@@ -311,7 +320,9 @@ export default function NewInvoicePage() {
             invoice_id: invoice.id,
             description: l.description.trim(),
             quantity: l.qty,
-            unit_price: l.price,
+            unit_price: pricesIncludeVat
+              ? Math.round((l.price / (1 + l.vat_rate / 100)) * 10000) / 10000
+              : l.price,
             vat_rate: l.vat_rate,
             vat_amount: Math.round(l.vatAmount * 100) / 100,
             line_total: Math.round(l.lineTotal * 100) / 100,
@@ -402,7 +413,24 @@ export default function NewInvoicePage() {
         {/* Line items */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-medium text-zinc-400">Laskurivit</h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-sm font-medium text-zinc-400">Laskurivit</h2>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <div className="relative inline-flex">
+                  <input
+                    type="checkbox"
+                    checked={pricesIncludeVat}
+                    onChange={(e) => setPricesIncludeVat(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-8 h-4 bg-zinc-700 peer-checked:bg-green-600 rounded-full transition-colors" />
+                  <div className="absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-4" />
+                </div>
+                <span className="text-xs text-zinc-400">
+                  {pricesIncludeVat ? 'Hinnat sisältävät ALV' : 'Hinnat ilman ALV'}
+                </span>
+              </label>
+            </div>
             <label className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-green-400 cursor-pointer transition-colors">
               <Camera size={14} />
               Poimi kuvasta
@@ -470,9 +498,9 @@ export default function NewInvoicePage() {
             <div className="hidden sm:grid grid-cols-[1fr_80px_110px_120px_100px_36px] gap-2 text-xs text-zinc-500 px-1">
               <span>Kuvaus</span>
               <span>Määrä</span>
-              <span>Á-hinta (€)</span>
+              <span>{pricesIncludeVat ? 'Á-hinta sis. ALV (€)' : 'Á-hinta (€)'}</span>
               <span>ALV</span>
-              <span className="text-right">Yhteensä</span>
+              <span className="text-right">Veroton yht.</span>
               <span />
             </div>
 
