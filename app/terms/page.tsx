@@ -16,7 +16,7 @@ export default function TermsPage() {
         <h1 className="text-3xl font-bold mb-2">
           Just<span className="text-green-400">.</span>Pay — Käyttöehdot
         </h1>
-        <p className="text-zinc-500 text-sm mb-10">Päivitetty 1.7.2025</p>
+        <p className="text-zinc-500 text-sm mb-10">Päivitetty 1.7.2026</p>
 
         <div className="space-y-8 text-zinc-300 leading-relaxed">
           <section>
