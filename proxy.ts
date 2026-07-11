@@ -31,7 +31,9 @@ export async function proxy(request: NextRequest) {
 
   const url = request.nextUrl.clone()
   const isAuthRoute =
-    url.pathname.startsWith('/login') || url.pathname.startsWith('/auth/')
+    url.pathname.startsWith('/login') ||
+    url.pathname.startsWith('/auth/') ||
+    url.pathname.startsWith('/terms')
 
   if (!user && url.pathname === '/') {
     return NextResponse.rewrite(new URL('/landing.html', request.url))
