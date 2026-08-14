@@ -2,29 +2,29 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * Generates the next invoice number for an org in format YYYY-NNNN.
- * Queries the highest existing number for the current year and increments.
+ *
+ * Uses the next_invoice_number(org_id, year) DB function (see
+ * migration_006_invoice_number_sequence.sql), which atomically
+ * increments a per-(org, year) counter via a single
+ * INSERT ... ON CONFLICT DO UPDATE ... RETURNING statement. This
+ * replaces the previous read-highest-then-increment approach, which
+ * had a real (if rare) race condition: two invoices saved concurrently
+ * for the same org could compute the same "next" number. The
+ * jp_invoices_unique_number constraint caught that as a hard insert
+ * failure, but didn't prevent it from happening.
  */
 export async function generateInvoiceNumber(
   supabase: SupabaseClient,
   orgId: string
 ): Promise<string> {
   const year = new Date().getFullYear()
-  const prefix = `${year}-`
 
-  const { data } = await supabase
-    .from('jp_invoices')
-    .select('invoice_number')
-    .eq('org_id', orgId)
-    .like('invoice_number', `${prefix}%`)
-    .order('invoice_number', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const { data, error } = await supabase.rpc('next_invoice_number', {
+    p_org_id: orgId,
+    p_year: year,
+  })
 
-  if (!data?.invoice_number) {
-    return `${year}-0001`
-  }
+  if (error) throw error
 
-  const parts = data.invoice_number.split('-')
-  const lastNum = parseInt(parts[parts.length - 1]) || 0
-  return `${year}-${String(lastNum + 1).padStart(4, '0')}`
+  return `${year}-${String(data as number).padStart(4, '0')}`
 }

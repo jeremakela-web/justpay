@@ -40,6 +40,7 @@ export default function NewInvoicePage() {
   const [org, setOrg] = useState<Organization | null>(null)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [vatRules, setVatRules] = useState<VatRule[]>([])
+  const [vatRulesChecked, setVatRulesChecked] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
@@ -57,6 +58,7 @@ export default function NewInvoicePage() {
   const [issueDate, setIssueDate] = useState(todayStr())
   const [dueDate, setDueDate] = useState(futureDateStr(14))
   const [workerName, setWorkerName] = useState('')
+  const [workerNameNote, setWorkerNameNote] = useState('')
   const [serviceDateStart, setServiceDateStart] = useState(todayStr())
   const [serviceDateEnd, setServiceDateEnd] = useState(todayStr())
   const [notes, setNotes] = useState('')
@@ -111,6 +113,7 @@ export default function NewInvoicePage() {
 
     const rules: VatRule[] = data || []
     setVatRules(rules)
+    setVatRulesChecked(true)
 
     // Apply default VAT to new lines that have no category set
     if (rules.length > 0) {
@@ -283,12 +286,22 @@ export default function NewInvoicePage() {
       setError('Merkitse kuka teki työn (tekijä).')
       return
     }
+    if (workerName.trim() !== org!.name.trim() && !workerNameNote.trim()) {
+      setError('Kerro miksi tekijä eroaa omasta nimestäsi.')
+      return
+    }
     if (!serviceDateStart || !serviceDateEnd) {
       setError('Merkitse työn suorituspäivä(t).')
       return
     }
     if (serviceDateEnd < serviceDateStart) {
       setError('Työn päättymispäivä ei voi olla ennen alkamispäivää.')
+      return
+    }
+    if (vatRulesChecked && vatRules.length === 0) {
+      setError(
+        `Maalle "${org!.country}" ei löydy voimassa olevaa ALV-sääntöä laskupäivälle. Laskua ei voi tallentaa.`
+      )
       return
     }
     const validLines = computed.filter(
@@ -302,62 +315,93 @@ export default function NewInvoicePage() {
     setSaving(true)
     setError(null)
 
-    try {
-      const invNumber = await generateInvoiceNumber(supabase, org!.id)
-      const refNumber = generateFinnishReferenceNumber(invNumber.replace('-', ''))
+    const sub = Math.round(subtotal * 100) / 100
+    const vat = Math.round(vatTotal * 100) / 100
+    const total = Math.round(totalAmount * 100) / 100
 
-      const sub = Math.round(subtotal * 100) / 100
-      const vat = Math.round(vatTotal * 100) / 100
-      const total = Math.round(totalAmount * 100) / 100
+    // Laskunumero tulee nyt next_invoice_number()-DB-funktiosta (ks.
+    // migration_006), joka kasvattaa laskuria atomisesti eikä siis enää
+    // pysty tuottamaan samaa numeroa kahdelle samanaikaiselle tallennukselle
+    // — mutta jos jokin muu, odottamaton syy silti törmää
+    // jp_invoices_unique_number-rajoitteeseen (esim. käsin tehty DB-muokkaus),
+    // yritetään hakea tuore numero uudelleen sen sijaan että käyttäjä näkisi
+    // vain yleisen virheen.
+    const MAX_ATTEMPTS = 3
+    let lastErr: unknown = null
 
-      const { data: invoice, error: invErr } = await supabase
-        .from('jp_invoices')
-        .insert({
-          org_id: org!.id,
-          customer_id: customerId,
-          invoice_number: invNumber,
-          reference_number: refNumber,
-          issue_date: issueDate,
-          due_date: dueDate,
-          worker_name: workerName.trim(),
-          service_date_start: serviceDateStart,
-          service_date_end: serviceDateEnd,
-          status: 'draft',
-          subtotal: sub,
-          vat_total: vat,
-          total_amount: total,
-          currency: org!.currency,
-          notes: notes.trim() || null,
-        })
-        .select()
-        .single()
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const invNumber = await generateInvoiceNumber(supabase, org!.id)
+        const refNumber = generateFinnishReferenceNumber(invNumber.replace('-', ''))
 
-      if (invErr) throw invErr
+        const { data: invoice, error: invErr } = await supabase
+          .from('jp_invoices')
+          .insert({
+            org_id: org!.id,
+            customer_id: customerId,
+            invoice_number: invNumber,
+            reference_number: refNumber,
+            issue_date: issueDate,
+            due_date: dueDate,
+            worker_name: workerName.trim(),
+            worker_name_note: workerNameNote.trim() || null,
+            service_date_start: serviceDateStart,
+            service_date_end: serviceDateEnd,
+            status: 'draft',
+            subtotal: sub,
+            vat_total: vat,
+            total_amount: total,
+            currency: org!.currency,
+            notes: notes.trim() || null,
+          })
+          .select()
+          .single()
 
-      const { error: linesErr } = await supabase
-        .from('jp_invoice_lines')
-        .insert(
-          validLines.map((l, i) => ({
-            invoice_id: invoice.id,
-            description: l.description.trim(),
-            quantity: l.qty,
-            unit_price: pricesIncludeVat
-              ? Math.round((l.price / (1 + l.vat_rate / 100)) * 10000) / 10000
-              : l.price,
-            vat_rate: l.vat_rate,
-            vat_amount: Math.round(l.vatAmount * 100) / 100,
-            line_total: Math.round(l.lineTotal * 100) / 100,
-            sort_order: i,
-          }))
-        )
+        if (invErr) {
+          // Postgres unique_violation — joku muu ehti käyttää saman numeron.
+          // Yritä uudelleen tuoreella numerolla sen sijaan että luovutetaan heti.
+          if (invErr.code === '23505' && attempt < MAX_ATTEMPTS) {
+            lastErr = invErr
+            continue
+          }
+          throw invErr
+        }
 
-      if (linesErr) throw linesErr
+        const { error: linesErr } = await supabase
+          .from('jp_invoice_lines')
+          .insert(
+            validLines.map((l, i) => ({
+              invoice_id: invoice.id,
+              description: l.description.trim(),
+              quantity: l.qty,
+              unit_price: pricesIncludeVat
+                ? Math.round((l.price / (1 + l.vat_rate / 100)) * 10000) / 10000
+                : l.price,
+              vat_rate: l.vat_rate,
+              vat_amount: Math.round(l.vatAmount * 100) / 100,
+              line_total: Math.round(l.lineTotal * 100) / 100,
+              sort_order: i,
+            }))
+          )
 
-      router.push(`/invoices/${invoice.id}`)
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Tallennusvirhe.')
-      setSaving(false)
+        if (linesErr) throw linesErr
+
+        router.push(`/invoices/${invoice.id}`)
+        return
+      } catch (err: unknown) {
+        lastErr = err
+        // Muu kuin numerotörmäys — ei kannata yrittää uudelleen automaattisesti.
+        const code = (err as { code?: string } | null)?.code
+        if (code !== '23505') break
+      }
     }
+
+    setError(
+      lastErr instanceof Error
+        ? lastErr.message
+        : 'Tallennusvirhe. Yritä uudelleen — jos ongelma jatkuu, laskunumero ei ehkä vapaudu automaattisesti.'
+    )
+    setSaving(false)
   }
 
   if (!org) {
@@ -443,6 +487,22 @@ export default function NewInvoicePage() {
                 className={INPUT}
                 required
               />
+              {workerName.trim() && workerName.trim() !== org.name.trim() && (
+                <div className="mt-2">
+                  <label className="block text-xs text-amber-400 mb-1">
+                    Tekijä eroaa omasta nimestäsi ({org.name}) — miksi?{' '}
+                    <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={workerNameNote}
+                    onChange={(e) => setWorkerNameNote(e.target.value)}
+                    placeholder="esim. laskutan kollegan puolesta"
+                    className={INPUT}
+                    required
+                  />
+                </div>
+              )}
             </div>
 
             <div>
@@ -510,6 +570,15 @@ export default function NewInvoicePage() {
               />
             </label>
           </div>
+
+          {vatRulesChecked && vatRules.length === 0 && (
+            <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">
+              Maalle &quot;{org.country}&quot; ei löydy voimassa olevaa ALV-sääntöä laskupäivälle{' '}
+              {issueDate}. Laskua ei voi tallentaa, koska ALV-prosentti jäisi
+              määrittelemättä. Tarkista maa- ja päivämäärävalinta, tai lisää
+              puuttuva ALV-sääntö ennen jatkamista.
+            </div>
+          )}
 
           {/* Image preview + extract */}
           {imagePreview && (
@@ -770,7 +839,7 @@ export default function NewInvoicePage() {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving || !customerId}
+            disabled={saving || !customerId || (vatRulesChecked && vatRules.length === 0)}
             className="flex-1 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
           >
             {saving ? 'Tallennetaan...' : 'Tallenna luonnoksena'}
