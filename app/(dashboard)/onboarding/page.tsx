@@ -4,6 +4,19 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
+const INDUSTRIES = [
+  'Kodinsiivous',
+  'Autopesu',
+  'Renkaanvaihto',
+  'Muutto',
+  'Kodinkorjaus',
+  'Puutarhatyöt',
+  'Lumenluonti',
+  'Ikkunanpesu',
+  'Kuljetus',
+  'Muu',
+]
+
 const COUNTRIES = [
   { code: 'FI', name: 'Suomi' },
   { code: 'SE', name: 'Ruotsi' },
@@ -26,6 +39,7 @@ export default function OnboardingPage() {
 
   const [name, setName] = useState('')
   const [businessId, setBusinessId] = useState('')
+  const [industry, setIndustry] = useState('')
   const [country, setCountry] = useState('FI')
   const [currency, setCurrency] = useState('EUR')
   const [saving, setSaving] = useState(false)
@@ -33,7 +47,7 @@ export default function OnboardingPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
+    if (!name.trim() || !industry) return
 
     setSaving(true)
     setError(null)
@@ -51,6 +65,7 @@ export default function OnboardingPage() {
       owner_user_id: user.id,
       name: name.trim(),
       business_id: businessId.trim() || null,
+      industry,
       country,
       currency,
     })
@@ -108,6 +123,27 @@ export default function OnboardingPage() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1.5">
+                Toimiala <span className="text-red-400">*</span>
+              </label>
+              <select
+                required
+                value={industry}
+                onChange={(e) => setIndustry(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
+              >
+                <option value="" disabled>
+                  Valitse toimiala
+                </option>
+                {INDUSTRIES.map((i) => (
+                  <option key={i} value={i}>
+                    {i}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-zinc-400 mb-1.5">
@@ -152,7 +188,7 @@ export default function OnboardingPage() {
 
             <button
               type="submit"
-              disabled={saving || !name.trim()}
+              disabled={saving || !name.trim() || !industry}
               className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors mt-2"
             >
               {saving ? 'Tallennetaan...' : 'Aloita →'}

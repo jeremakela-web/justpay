@@ -3,6 +3,7 @@ export interface Organization {
   owner_user_id: string
   name: string
   business_id: string | null
+  industry: string | null
   country: string
   currency: string
   created_at: string
