@@ -36,12 +36,21 @@ export default function DashboardLayout({
 
       const { data: org } = await supabase
         .from('jp_organizations')
-        .select('id, name')
+        .select('id, name, contract_signed_at')
         .eq('owner_user_id', user.id)
         .maybeSingle()
 
       if (!org && pathname !== '/onboarding') {
         router.push('/onboarding')
+        return
+      }
+
+      // Sopimusportti: tämä on vain käyttöliittymän mukavuusohjaus,
+      // ei varsinainen esto — todellinen esto on RLS-tasolla
+      // (ks. migration_009), joten suora API-kutsu ei pysty
+      // ohittamaan sitä vaikka tämä redirect jäisikin väliin.
+      if (org && !org.contract_signed_at && pathname !== '/contract') {
+        router.push('/contract')
         return
       }
 
@@ -57,7 +66,7 @@ export default function DashboardLayout({
     router.push('/login')
   }
 
-  if (checking && pathname !== '/onboarding') {
+  if (checking && pathname !== '/onboarding' && pathname !== '/contract') {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
