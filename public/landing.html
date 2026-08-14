@@ -328,7 +328,7 @@
     <div class="ai-form">
       <div class="form-group">
         <label>Mikä on päätoimialasi?</label>
-        <select id="ala">
+        <select id="ala" onchange="toggleAlaMuu()">
           <option value="Kodinsiivous">Kodinsiivous</option>
           <option value="Autopesu">Autopesu / Autonhoito</option>
           <option value="Kodinkorjaus">Kodinkorjaus / Kunnossapito</option>
@@ -338,6 +338,10 @@
           <option value="Kuljetus">Kuljetus</option>
           <option value="Muu">Muu palveluala</option>
         </select>
+      </div>
+      <div class="form-group" id="ala-muu-group" style="display:none;">
+        <label>Kerro toimialasi</label>
+        <input type="text" id="ala-muu" placeholder="esim. Kiinteistönvälitys">
       </div>
       <div class="form-group">
         <label>Arvioitu kuukausilaskutus?</label>
@@ -797,8 +801,15 @@ function animate() {
 animate();
 
 // ==================== AI REITITYS ====================
+function toggleAlaMuu() {
+  const isMuu = document.getElementById('ala').value === 'Muu';
+  document.getElementById('ala-muu-group').style.display = isMuu ? 'block' : 'none';
+  if (!isMuu) document.getElementById('ala-muu').value = '';
+}
+
 function analyzeAI() {
   const ala = document.getElementById('ala').value;
+  const alaMuu = ala === 'Muu' ? document.getElementById('ala-muu').value.trim() : '';
   const laskutus = document.getElementById('laskutus').value;
   const ytunnus = document.getElementById('ytunnus').value;
 
