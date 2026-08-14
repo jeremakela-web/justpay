@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import type { Invoice, InvoiceLine, Customer } from '@/types/database'
+import type { Invoice, InvoiceLine, Customer, Payment } from '@/types/database'
 import { formatReferenceNumber } from '@/lib/utils/reference-number'
 import { KANSALLISVARANTO } from '@/lib/kansallisvaranto'
 import { ArrowLeft, Printer, CheckCircle, Send, XCircle, Copy, Check, FileDown, Mail } from 'lucide-react'
@@ -58,6 +58,14 @@ export default function InvoiceDetailPage() {
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const [sendSuccess, setSendSuccess] = useState(false)
+  const [showPaidConfirm, setShowPaidConfirm] = useState(false)
+  const [paidNote, setPaidNote] = useState('')
+  const [payout, setPayout] = useState<Payment | null>(null)
+  const [payoutError, setPayoutError] = useState<string | null>(null)
+  const [showSentConfirm, setShowSentConfirm] = useState(false)
+  const [sentNote, setSentNote] = useState('')
+  const [showConfirmedConfirm, setShowConfirmedConfirm] = useState(false)
+  const [confirmedNote, setConfirmedNote] = useState('')
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -97,17 +105,139 @@ export default function InvoiceDetailPage() {
         setCustomer(custData as Customer)
       }
 
+      const { data: payoutData } = await supabase
+        .from('jp_payments')
+        .select('*')
+        .eq('invoice_id', id)
+        .eq('type', 'worker_payout')
+        .maybeSingle()
+      setPayout((payoutData as Payment) || null)
+
       setLoading(false)
     }
     fetchAll()
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const updateStatus = async (status: Invoice['status']) => {
+  // Laskee ja luo tekijän maksurivin kun lasku merkitään maksetuksi.
+  // Malli (vahvistettu): fee_amount = subtotal * org.fee_rate_percent;
+  // fee_vat_amount = fee_amount * Suomen yleinen ALV-kanta (Kansallisvaranto
+  // on aina suomalainen yhtiö, riippumatta tekijän organisaation maasta);
+  // amount (nettosumma tekijälle) = subtotal - fee_amount - fee_vat_amount.
+  // Ei tee mitään jos payout-rivi on jo olemassa tälle laskulle
+  // (jp_payments_worker_payout_unique_idx varmistaa tämän myös DB-tasolla).
+  const ensurePayout = async (inv: Invoice) => {
+    setPayoutError(null)
+
+    const { data: existing } = await supabase
+      .from('jp_payments')
+      .select('*')
+      .eq('invoice_id', inv.id)
+      .eq('type', 'worker_payout')
+      .maybeSingle()
+    if (existing) {
+      setPayout(existing as Payment)
+      return
+    }
+
+    const { data: orgData, error: orgErr } = await supabase
+      .from('jp_organizations')
+      .select('fee_rate_percent')
+      .eq('id', inv.org_id)
+      .maybeSingle()
+    if (orgErr || !orgData) {
+      setPayoutError('Maksun laskenta epäonnistui: organisaatiota ei löytynyt.')
+      return
+    }
+
+    // Kansallisvarannon oman palkkion ALV — aina Suomen yleinen kanta,
+    // koska Kansallisvaranto on suomalainen yhtiö riippumatta tekijän
+    // organisaation maasta. Haetaan jp_vat_rules:sta (korkein voimassa
+    // oleva FI-kanta) sen sijaan että kanta olisi kovakoodattu, jotta
+    // laskenta pysyy oikeana jos Suomen ALV-kanta joskus muuttuu uudelleen.
+    const { data: vatRuleData } = await supabase
+      .from('jp_vat_rules')
+      .select('rate')
+      .eq('country', 'FI')
+      .lte('valid_from', inv.issue_date)
+      .or(`valid_until.is.null,valid_until.gte.${inv.issue_date}`)
+      .order('rate', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!vatRuleData) {
+      setPayoutError(
+        'Maksun laskenta epäonnistui: Suomen ALV-kantaa ei löytynyt laskupäivälle. Palkkion ALV jää laskematta — ota yhteyttä ylläpitoon ennen maksun suorittamista.'
+      )
+      return
+    }
+
+    const feeRatePercent = orgData.fee_rate_percent
+    const finlandVatRate = vatRuleData.rate
+
+    const feeAmount = Math.round(inv.subtotal * (feeRatePercent / 100) * 100) / 100
+    const feeVatAmount = Math.round(feeAmount * (finlandVatRate / 100) * 100) / 100
+    const netAmount = Math.round((inv.subtotal - feeAmount - feeVatAmount) * 100) / 100
+
+    const { data: created, error: insertErr } = await supabase
+      .from('jp_payments')
+      .insert({
+        org_id: inv.org_id,
+        invoice_id: inv.id,
+        type: 'worker_payout',
+        amount: netAmount,
+        fee_amount: feeAmount,
+        fee_vat_amount: feeVatAmount,
+        currency: inv.currency,
+        status: 'pending',
+      })
+      .select()
+      .single()
+
+    if (insertErr) {
+      setPayoutError('Maksurivin luonti epäonnistui: ' + insertErr.message)
+      return
+    }
+
+    setPayout(created as Payment)
+  }
+
+  const updatePayoutStatus = async (
+    status: Payment['status'],
+    note: string
+  ) => {
+    if (!payout) return
+    setUpdating(true)
+    const patch: Record<string, unknown> = { status }
+    if (status === 'sent') {
+      patch.sent_at = new Date().toISOString()
+      patch.sent_note = note
+    } else if (status === 'confirmed') {
+      patch.confirmed_at = new Date().toISOString()
+      patch.confirmed_note = note
+    }
+    const { data, error } = await supabase
+      .from('jp_payments')
+      .update(patch)
+      .eq('id', payout.id)
+      .select()
+      .single()
+    if (!error && data) {
+      setPayout(data as Payment)
+    }
+    setUpdating(false)
+  }
+
+  const updateStatus = async (status: Invoice['status'], confirmationNote?: string) => {
     if (!invoice) return
     setUpdating(true)
+    // updated_by/updated_at täyttyvät automaattisesti DB-triggerillä
+    // (ks. migration_005) — sovelluskoodi ei aseta niitä itse.
     const { data, error } = await supabase
       .from('jp_invoices')
-      .update({ status })
+      .update({
+        status,
+        ...(confirmationNote ? { paid_confirmation_note: confirmationNote } : {}),
+      })
       .eq('id', invoice.id)
       .select()
       .single()
@@ -115,6 +245,40 @@ export default function InvoiceDetailPage() {
       setInvoice(data as Invoice)
     }
     setUpdating(false)
+  }
+
+  const startPaidConfirm = () => {
+    setPaidNote('')
+    setShowPaidConfirm(true)
+  }
+
+  const confirmPaid = async () => {
+    if (!paidNote.trim()) return
+    await updateStatus('paid', paidNote.trim())
+    setShowPaidConfirm(false)
+    if (invoice) await ensurePayout(invoice)
+  }
+
+  const startSentConfirm = () => {
+    setSentNote('')
+    setShowSentConfirm(true)
+  }
+
+  const confirmSent = async () => {
+    if (!sentNote.trim()) return
+    await updatePayoutStatus('sent', sentNote.trim())
+    setShowSentConfirm(false)
+  }
+
+  const startConfirmedConfirm = () => {
+    setConfirmedNote('')
+    setShowConfirmedConfirm(true)
+  }
+
+  const confirmConfirmed = async () => {
+    if (!confirmedNote.trim()) return
+    await updatePayoutStatus('confirmed', confirmedNote.trim())
+    setShowConfirmedConfirm(false)
   }
 
   const handleSendEmail = async () => {
@@ -242,7 +406,7 @@ export default function InvoiceDetailPage() {
           {invoice.status === 'sent' && (
             <>
               <button
-                onClick={() => updateStatus('paid')}
+                onClick={startPaidConfirm}
                 disabled={updating}
                 className="flex items-center gap-1.5 px-3 py-2 text-sm text-green-400 bg-green-500/10 hover:bg-green-500/20 rounded-lg transition-colors disabled:opacity-50"
               >
@@ -262,7 +426,7 @@ export default function InvoiceDetailPage() {
 
           {invoice.status === 'overdue' && (
             <button
-              onClick={() => updateStatus('paid')}
+              onClick={startPaidConfirm}
               disabled={updating}
               className="flex items-center gap-1.5 px-3 py-2 text-sm text-green-400 bg-green-500/10 hover:bg-green-500/20 rounded-lg transition-colors disabled:opacity-50"
             >
@@ -273,6 +437,42 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
 
+      {showPaidConfirm && (
+        <div className="mb-4 px-4 py-4 bg-zinc-900 border border-green-500/30 rounded-xl no-print">
+          <p className="text-sm font-medium text-white mb-1">Vahvista maksu</p>
+          <p className="text-xs text-zinc-400 mb-3">
+            Miten maksu vahvistettiin? (esim. Revolut-viite, pankkitiliote, päivämäärä)
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={paidNote}
+              onChange={(e) => setPaidNote(e.target.value)}
+              placeholder="esim. Revolut-siirto 14.8.2026, viite RV-4821"
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={confirmPaid}
+                disabled={updating || !paidNote.trim()}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
+              >
+                <CheckCircle size={15} />
+                Vahvista maksu
+              </button>
+              <button
+                onClick={() => setShowPaidConfirm(false)}
+                disabled={updating}
+                className="px-3 py-2 text-sm text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+              >
+                Peruuta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {sendSuccess && (
         <div className="mb-4 px-4 py-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-sm text-emerald-400 no-print">
           Lasku lähetetty sähköpostitse osoitteeseen {customer?.email}. Tila päivitetty → Lähetetty.
@@ -281,6 +481,187 @@ export default function InvoiceDetailPage() {
       {sendError && (
         <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-sm text-red-400 no-print">
           {sendError}
+        </div>
+      )}
+
+      {(invoice.paid_confirmation_note || invoice.worker_name_note) && (
+        <div className="mb-4 px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl no-print text-xs text-zinc-400 space-y-1">
+          <p className="font-medium text-zinc-300 mb-1">Sisäiset huomiot (eivät näy asiakkaalle)</p>
+          {invoice.paid_confirmation_note && (
+            <p>Maksuvahvistus: {invoice.paid_confirmation_note}</p>
+          )}
+          {invoice.worker_name_note && (
+            <p>Tekijän poikkeama: {invoice.worker_name_note}</p>
+          )}
+          <p className="text-zinc-500">
+            Viimeksi päivitetty: {new Date(invoice.updated_at).toLocaleString('fi-FI')}
+          </p>
+        </div>
+      )}
+
+      {invoice.status === 'paid' && (
+        <div className="mb-4 px-4 py-4 bg-zinc-900 border border-zinc-800 rounded-xl no-print">
+          <p className="text-sm font-medium text-white mb-3">
+            Tekijän maksu (Kansallisvaranto → tekijä)
+          </p>
+
+          {payoutError && (
+            <div className="mb-3 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-400">
+              {payoutError}
+            </div>
+          )}
+
+          {!payout && !payoutError && (
+            <button
+              onClick={() => ensurePayout(invoice)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-zinc-700 hover:bg-zinc-600 rounded-lg transition-colors"
+            >
+              Laske maksu
+            </button>
+          )}
+
+          {payout && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <p className="text-zinc-500">Veroton summa</p>
+                  <p className="text-white font-medium">{formatCurrency(invoice.subtotal, payout.currency)}</p>
+                </div>
+                <div>
+                  <p className="text-zinc-500">Palkkio (veroton)</p>
+                  <p className="text-white font-medium">
+                    {payout.fee_amount != null ? formatCurrency(payout.fee_amount, payout.currency) : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-zinc-500">ALV palkkiosta</p>
+                  <p className="text-white font-medium">
+                    {payout.fee_vat_amount != null ? formatCurrency(payout.fee_vat_amount, payout.currency) : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-zinc-500">Maksettava tekijälle</p>
+                  <p className="text-green-400 font-semibold">
+                    {formatCurrency(payout.amount, payout.currency)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={`px-2 py-1 rounded-md text-xs font-medium ${
+                    payout.status === 'confirmed'
+                      ? 'bg-green-500/20 text-green-300'
+                      : payout.status === 'sent'
+                      ? 'bg-blue-500/20 text-blue-300'
+                      : 'bg-zinc-700 text-zinc-200'
+                  }`}
+                >
+                  {payout.status === 'confirmed'
+                    ? 'Maksu vahvistettu'
+                    : payout.status === 'sent'
+                    ? 'Maksu lähetetty'
+                    : 'Odottaa lähetystä'}
+                </span>
+
+                {payout.status === 'pending' && (
+                  <button
+                    onClick={startSentConfirm}
+                    disabled={updating}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    <Send size={13} />
+                    Merkitse lähetetyksi
+                  </button>
+                )}
+                {payout.status === 'sent' && (
+                  <button
+                    onClick={startConfirmedConfirm}
+                    disabled={updating}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-green-400 bg-green-500/10 hover:bg-green-500/20 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    <CheckCircle size={13} />
+                    Vahvista saapuneeksi
+                  </button>
+                )}
+              </div>
+
+              {payout.sent_note && (
+                <p className="text-xs text-zinc-500">Lähetysviite: {payout.sent_note}</p>
+              )}
+              {payout.confirmed_note && (
+                <p className="text-xs text-zinc-500">Vahvistus: {payout.confirmed_note}</p>
+              )}
+
+              {showSentConfirm && (
+                <div className="pt-2 border-t border-zinc-800">
+                  <p className="text-xs text-zinc-400 mb-2">
+                    Miten/mihin maksu lähetettiin? (esim. Revolut-viite)
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={sentNote}
+                      onChange={(e) => setSentNote(e.target.value)}
+                      placeholder="esim. Revolut-siirto tekijän tilille, viite RV-9931"
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={confirmSent}
+                        disabled={updating || !sentNote.trim()}
+                        className="px-3 py-2 text-sm text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
+                      >
+                        Vahvista
+                      </button>
+                      <button
+                        onClick={() => setShowSentConfirm(false)}
+                        disabled={updating}
+                        className="px-3 py-2 text-sm text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                      >
+                        Peruuta
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {showConfirmedConfirm && (
+                <div className="pt-2 border-t border-zinc-800">
+                  <p className="text-xs text-zinc-400 mb-2">
+                    Miten vahvistettiin että maksu saapui tekijälle?
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={confirmedNote}
+                      onChange={(e) => setConfirmedNote(e.target.value)}
+                      placeholder="esim. tekijä vahvisti saaneensa summan 15.8.2026"
+                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
+                      autoFocus
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={confirmConfirmed}
+                        disabled={updating || !confirmedNote.trim()}
+                        className="px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
+                      >
+                        Vahvista
+                      </button>
+                      <button
+                        onClick={() => setShowConfirmedConfirm(false)}
+                        disabled={updating}
+                        className="px-3 py-2 text-sm text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                      >
+                        Peruuta
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

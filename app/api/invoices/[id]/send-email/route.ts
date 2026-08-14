@@ -223,7 +223,10 @@ export async function POST(
     const apiKey = process.env.RESEND_API_KEY
     if (!apiKey) {
       return NextResponse.json(
-        { error: 'Sähköpostilähetys ei ole käytössä' },
+        {
+          error:
+            'Sähköpostilähetys ei ole käytössä palvelimella juuri nyt. Voit tulostaa/ladata laskun PDF:nä ja lähettää sen itse, tai yrittää myöhemmin uudelleen.',
+        },
         { status: 503 }
       )
     }

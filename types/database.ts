@@ -6,6 +6,9 @@ export interface Organization {
   industry: string | null
   country: string
   currency: string
+  // Kansallisvarannon palkkio tekijän laskuista, prosentteina verottomasta
+  // summasta (ks. migration_007). Oletus 1.00.
+  fee_rate_percent: number
   created_at: string
 }
 
@@ -51,8 +54,17 @@ export interface Invoice {
   // (Kansallisvaranto, ks. lib/kansallisvaranto.ts). Nullable DB-tasolla,
   // pakollisuus lomakevalidoinnissa (ks. migration_004 kommentti).
   worker_name: string | null
+  // Pakollinen selite, jos worker_name poikkeaa laskuttavan käyttäjän
+  // omasta nimestä (ks. migration_005).
+  worker_name_note: string | null
   service_date_start: string | null
   service_date_end: string | null
+  // Statusmuutosten jäljitettävyys — asetetaan automaattisesti DB-triggerillä,
+  // ei sovelluskoodissa (ks. migration_005).
+  updated_by: string | null
+  updated_at: string
+  // Vaadittu selite/viite kun status muutetaan 'paid':ksi (ks. migration_005).
+  paid_confirmation_note: string | null
   created_at: string
   jp_customers?: Customer
 }
@@ -67,4 +79,32 @@ export interface InvoiceLine {
   vat_amount: number
   line_total: number
   sort_order: number
+}
+
+// Tekijän maksun (Kansallisvaranto -> tekijä) seurantarivi. Yksi rivi per
+// maksettu lasku (type='worker_payout', ks. migration_007). 'amount' on
+// nettosumma tekijälle; fee_amount/fee_vat_amount ovat Kansallisvarannon
+// oman (veroton) palkkion ja siitä tilitettävän ALV:n erittely — kaikki
+// kolme tallennetaan erikseen auditoitavuuden vuoksi, ei vain yhtenä
+// vähennettynä lukuna.
+export interface Payment {
+  id: string
+  org_id: string
+  invoice_id: string | null
+  type: 'worker_payout' | 'customer_payment'
+  amount: number
+  fee_amount: number | null
+  fee_vat_amount: number | null
+  currency: string
+  payment_date: string
+  payment_method: string | null
+  reference: string | null
+  external_id: string | null
+  notes: string | null
+  status: 'pending' | 'sent' | 'confirmed'
+  sent_at: string | null
+  sent_note: string | null
+  confirmed_at: string | null
+  confirmed_note: string | null
+  created_at: string
 }
