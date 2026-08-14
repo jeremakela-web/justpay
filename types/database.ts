@@ -94,6 +94,7 @@ export interface Payment {
   type: 'worker_payout' | 'customer_payment'
   amount: number
   fee_amount: number | null
+  fee_vat_rate: number | null
   fee_vat_amount: number | null
   currency: string
   payment_date: string
@@ -106,5 +107,25 @@ export interface Payment {
   sent_note: string | null
   confirmed_at: string | null
   confirmed_note: string | null
+  created_at: string
+}
+
+// Kansallisvarannon tekijälle antama kuitti/lasku palvelumaksusta
+// (1 % + ALV), jonka tekijä tarvitsee omaan verotukseensa. Luodaan
+// automaattisesti DB-triggerillä kun vastaava jp_payments-rivi
+// (payout_id) siirtyy tilaan 'confirmed' — ei sovelluskoodissa
+// (ks. migration_008).
+export interface ServiceFeeDocument {
+  id: string
+  org_id: string
+  source_invoice_id: string
+  payout_id: string
+  document_number: string
+  issue_date: string
+  fee_amount: number
+  fee_vat_rate: number
+  fee_vat_amount: number
+  total_amount: number
+  currency: string
   created_at: string
 }

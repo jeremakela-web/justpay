@@ -3,24 +3,7 @@ import { Resend } from 'resend'
 import { createClient } from '@/lib/supabase/server'
 import type { Invoice, InvoiceLine, Customer } from '@/types/database'
 import { KANSALLISVARANTO } from '@/lib/kansallisvaranto'
-
-function formatDate(s: string) {
-  return new Date(s).toLocaleDateString('fi-FI')
-}
-
-function formatServiceDate(start: string | null, end: string | null) {
-  if (!start) return null
-  if (!end || end === start) return formatDate(start)
-  return `${formatDate(start)} – ${formatDate(end)}`
-}
-
-function formatCurrency(n: number, currency = 'EUR') {
-  return new Intl.NumberFormat('fi-FI', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(n)
-}
+import { formatDate, formatServiceDate, formatCurrency } from '@/lib/utils/invoice-format'
 
 function formatRef(ref: string) {
   return ref.replace(/(.{1,5})(?=(.{5})+$)/g, '$1 ').trim()

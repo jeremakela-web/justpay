@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import type { Invoice, InvoiceLine, Customer, Payment } from '@/types/database'
+import type { Invoice, InvoiceLine, Customer, Payment, ServiceFeeDocument } from '@/types/database'
 import { formatReferenceNumber } from '@/lib/utils/reference-number'
+import { formatDate, formatServiceDate, formatCurrency } from '@/lib/utils/invoice-format'
 import { KANSALLISVARANTO } from '@/lib/kansallisvaranto'
 import { ArrowLeft, Printer, CheckCircle, Send, XCircle, Copy, Check, FileDown, Mail } from 'lucide-react'
 
@@ -23,24 +24,6 @@ const STATUS_COLORS: Record<Invoice['status'], string> = {
   paid: 'bg-green-500/20 text-green-300',
   overdue: 'bg-red-500/20 text-red-300',
   cancelled: 'bg-zinc-800 text-zinc-500',
-}
-
-function formatDate(s: string) {
-  return new Date(s).toLocaleDateString('fi-FI')
-}
-
-function formatServiceDate(start: string | null, end: string | null) {
-  if (!start) return null
-  if (!end || end === start) return formatDate(start)
-  return `${formatDate(start)} – ${formatDate(end)}`
-}
-
-function formatCurrency(n: number, currency = 'EUR') {
-  return new Intl.NumberFormat('fi-FI', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(n)
 }
 
 export default function InvoiceDetailPage() {
@@ -62,6 +45,7 @@ export default function InvoiceDetailPage() {
   const [paidNote, setPaidNote] = useState('')
   const [payout, setPayout] = useState<Payment | null>(null)
   const [payoutError, setPayoutError] = useState<string | null>(null)
+  const [serviceFeeDoc, setServiceFeeDoc] = useState<ServiceFeeDocument | null>(null)
   const [showSentConfirm, setShowSentConfirm] = useState(false)
   const [sentNote, setSentNote] = useState('')
   const [showConfirmedConfirm, setShowConfirmedConfirm] = useState(false)
@@ -112,6 +96,18 @@ export default function InvoiceDetailPage() {
         .eq('type', 'worker_payout')
         .maybeSingle()
       setPayout((payoutData as Payment) || null)
+
+      // Palvelumaksukuitti syntyy automaattisesti DB-triggerillä kun
+      // payout vahvistetaan (ks. migration_008) — haetaan tässä jos
+      // se jo on olemassa (esim. sivun uudelleenlataus vahvistuksen jälkeen).
+      if (payoutData) {
+        const { data: docData } = await supabase
+          .from('jp_service_fee_documents')
+          .select('*')
+          .eq('payout_id', payoutData.id)
+          .maybeSingle()
+        setServiceFeeDoc((docData as ServiceFeeDocument) || null)
+      }
 
       setLoading(false)
     }
@@ -186,6 +182,7 @@ export default function InvoiceDetailPage() {
         type: 'worker_payout',
         amount: netAmount,
         fee_amount: feeAmount,
+        fee_vat_rate: finlandVatRate,
         fee_vat_amount: feeVatAmount,
         currency: inv.currency,
         status: 'pending',
@@ -223,6 +220,18 @@ export default function InvoiceDetailPage() {
       .single()
     if (!error && data) {
       setPayout(data as Payment)
+
+      // DB-triggeri (ks. migration_008) luo palvelumaksukuitin samassa
+      // transaktiossa kun status siirtyy 'confirmed':ksi — se on siis
+      // jo olemassa tähän mennessä, haetaan se näytettäväksi.
+      if (status === 'confirmed') {
+        const { data: docData } = await supabase
+          .from('jp_service_fee_documents')
+          .select('*')
+          .eq('payout_id', data.id)
+          .maybeSingle()
+        setServiceFeeDoc((docData as ServiceFeeDocument) || null)
+      }
     }
     setUpdating(false)
   }
@@ -583,6 +592,14 @@ export default function InvoiceDetailPage() {
                     <CheckCircle size={13} />
                     Vahvista saapuneeksi
                   </button>
+                )}
+                {serviceFeeDoc && (
+                  <Link
+                    href={`/service-fee/${serviceFeeDoc.id}`}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg transition-colors"
+                  >
+                    Näytä palvelumaksukuitti {serviceFeeDoc.document_number}
+                  </Link>
                 )}
               </div>
 
