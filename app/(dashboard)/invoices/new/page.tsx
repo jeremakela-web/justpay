@@ -56,6 +56,9 @@ export default function NewInvoicePage() {
   const [customerId, setCustomerId] = useState('')
   const [issueDate, setIssueDate] = useState(todayStr())
   const [dueDate, setDueDate] = useState(futureDateStr(14))
+  const [workerName, setWorkerName] = useState('')
+  const [serviceDateStart, setServiceDateStart] = useState(todayStr())
+  const [serviceDateEnd, setServiceDateEnd] = useState(todayStr())
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<LineItem[]>([
     { id: '1', description: '', quantity: '1', unit_price: '', vat_category: '', vat_rate: 0 },
@@ -80,6 +83,9 @@ export default function NewInvoicePage() {
         return
       }
       setOrg(orgData)
+      // Tekijä on oletuksena laskuttavan tilin omistaja — muokattavissa
+      // per lasku (esim. jos joku laskuttaa kollegan puolesta).
+      setWorkerName(orgData.name)
 
       const { data: custData } = await supabase
         .from('jp_customers')
@@ -273,6 +279,18 @@ export default function NewInvoicePage() {
       setError('Valitse asiakas.')
       return
     }
+    if (!workerName.trim()) {
+      setError('Merkitse kuka teki työn (tekijä).')
+      return
+    }
+    if (!serviceDateStart || !serviceDateEnd) {
+      setError('Merkitse työn suorituspäivä(t).')
+      return
+    }
+    if (serviceDateEnd < serviceDateStart) {
+      setError('Työn päättymispäivä ei voi olla ennen alkamispäivää.')
+      return
+    }
     const validLines = computed.filter(
       (l) => l.description.trim() && l.price > 0 && l.qty > 0
     )
@@ -301,6 +319,9 @@ export default function NewInvoicePage() {
           reference_number: refNumber,
           issue_date: issueDate,
           due_date: dueDate,
+          worker_name: workerName.trim(),
+          service_date_start: serviceDateStart,
+          service_date_end: serviceDateEnd,
           status: 'draft',
           subtotal: sub,
           vat_total: vat,
@@ -405,6 +426,48 @@ export default function NewInvoicePage() {
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
                 className={INPUT}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4 pt-4 border-t border-zinc-800">
+            <div className="sm:col-span-1">
+              <label className="block text-sm text-zinc-400 mb-1.5">
+                Tekijä <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={workerName}
+                onChange={(e) => setWorkerName(e.target.value)}
+                placeholder="Kuka teki työn"
+                className={INPUT}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1.5">
+                Työ suoritettu, alkaen <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="date"
+                value={serviceDateStart}
+                onChange={(e) => setServiceDateStart(e.target.value)}
+                className={INPUT}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1.5">
+                Työ suoritettu, päättyen <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="date"
+                value={serviceDateEnd}
+                onChange={(e) => setServiceDateEnd(e.target.value)}
+                className={INPUT}
+                required
               />
             </div>
           </div>

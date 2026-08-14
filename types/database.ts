@@ -47,6 +47,12 @@ export interface Invoice {
   total_amount: number
   currency: string
   notes: string | null
+  // Tekijä (kuka teki työn) ja työn ajankohta — erillään laskuttajasta
+  // (Kansallisvaranto, ks. lib/kansallisvaranto.ts). Nullable DB-tasolla,
+  // pakollisuus lomakevalidoinnissa (ks. migration_004 kommentti).
+  worker_name: string | null
+  service_date_start: string | null
+  service_date_end: string | null
   created_at: string
   jp_customers?: Customer
 }

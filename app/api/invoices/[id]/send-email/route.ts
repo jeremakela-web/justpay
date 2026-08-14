@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { createClient } from '@/lib/supabase/server'
-import type { Invoice, InvoiceLine, Customer, Organization } from '@/types/database'
+import type { Invoice, InvoiceLine, Customer } from '@/types/database'
+import { KANSALLISVARANTO } from '@/lib/kansallisvaranto'
 
 function formatDate(s: string) {
   return new Date(s).toLocaleDateString('fi-FI')
+}
+
+function formatServiceDate(start: string | null, end: string | null) {
+  if (!start) return null
+  if (!end || end === start) return formatDate(start)
+  return `${formatDate(start)} – ${formatDate(end)}`
 }
 
 function formatCurrency(n: number, currency = 'EUR') {
@@ -22,8 +29,7 @@ function formatRef(ref: string) {
 function generateEmailHtml(
   invoice: Invoice,
   lines: InvoiceLine[],
-  customer: Customer,
-  org: Organization | null
+  customer: Customer
 ): string {
   const vatGroups = lines.reduce<Record<number, number>>((acc, l) => {
     if (l.vat_rate > 0) acc[l.vat_rate] = (acc[l.vat_rate] || 0) + l.vat_amount
@@ -68,10 +74,11 @@ function generateEmailHtml(
               <tr>
                 <td>
                   <div style="font-size:22px;font-weight:700;color:#fff">Just<span style="color:#4ade80">.</span>Pay</div>
-                  ${org ? `<div style="margin-top:8px;font-size:14px;color:#cbd5e1">
-                    <div style="font-weight:600;color:#fff">${org.name}</div>
-                    ${org.business_id ? `<div>Y-tunnus: ${org.business_id}</div>` : ''}
-                  </div>` : ''}
+                  <div style="margin-top:8px;font-size:14px;color:#cbd5e1">
+                    <div style="font-weight:600;color:#fff">${KANSALLISVARANTO.name}</div>
+                    <div>Y-tunnus: ${KANSALLISVARANTO.businessId}</div>
+                    <div>${KANSALLISVARANTO.address}</div>
+                  </div>
                 </td>
                 <td style="text-align:right">
                   <div style="font-size:28px;font-weight:800;color:#4ade80">LASKU</div>
@@ -94,6 +101,15 @@ function generateEmailHtml(
             ${customer.business_id ? `<div style="font-size:14px;color:#64748b">Y-tunnus: ${customer.business_id}</div>` : ''}
             ${customer.address ? `<div style="font-size:14px;color:#64748b">${customer.address}</div>` : ''}
             ${customer.postal_code || customer.city ? `<div style="font-size:14px;color:#64748b">${customer.postal_code ?? ''} ${customer.city ?? ''}</div>` : ''}
+          </td>
+        </tr>
+
+        <!-- Työn tiedot: tekijä + ajankohta, erillään laskuttajasta -->
+        <tr>
+          <td style="background:#fff;padding:20px 32px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;border-bottom:1px solid #f1f5f9">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:6px">Työn tiedot</div>
+            <div style="font-size:14px;color:#1e293b">Työn suoritti: <strong>${invoice.worker_name || '—'}</strong></div>
+            ${formatServiceDate(invoice.service_date_start, invoice.service_date_end) ? `<div style="font-size:14px;color:#1e293b">Työn ajankohta: <strong>${formatServiceDate(invoice.service_date_start, invoice.service_date_end)}</strong></div>` : ''}
           </td>
         </tr>
 
@@ -180,14 +196,11 @@ export async function POST(
     } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Ei oikeuksia' }, { status: 401 })
 
-    const [{ data: invoice }, { data: org }] = await Promise.all([
-      supabase.from('jp_invoices').select('*').eq('id', id).maybeSingle(),
-      supabase
-        .from('jp_organizations')
-        .select('*')
-        .eq('owner_user_id', user.id)
-        .maybeSingle(),
-    ])
+    const { data: invoice } = await supabase
+      .from('jp_invoices')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
 
     if (!invoice) return NextResponse.json({ error: 'Laskua ei löydy' }, { status: 404 })
 
@@ -217,13 +230,12 @@ export async function POST(
 
     const resend = new Resend(apiKey)
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
-    const fromName = org?.name || 'Just.Pay'
+    const fromName = KANSALLISVARANTO.name
 
     const html = generateEmailHtml(
       invoice as Invoice,
       (lines as InvoiceLine[]) || [],
-      customer as Customer,
-      org as Organization | null
+      customer as Customer
     )
 
     const { error: sendErr } = await resend.emails.send({

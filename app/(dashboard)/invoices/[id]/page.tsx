@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import type { Invoice, InvoiceLine, Organization, Customer } from '@/types/database'
+import type { Invoice, InvoiceLine, Customer } from '@/types/database'
 import { formatReferenceNumber } from '@/lib/utils/reference-number'
+import { KANSALLISVARANTO } from '@/lib/kansallisvaranto'
 import { ArrowLeft, Printer, CheckCircle, Send, XCircle, Copy, Check, FileDown, Mail } from 'lucide-react'
 
 const STATUS_LABELS: Record<Invoice['status'], string> = {
@@ -28,6 +29,12 @@ function formatDate(s: string) {
   return new Date(s).toLocaleDateString('fi-FI')
 }
 
+function formatServiceDate(start: string | null, end: string | null) {
+  if (!start) return null
+  if (!end || end === start) return formatDate(start)
+  return `${formatDate(start)} – ${formatDate(end)}`
+}
+
 function formatCurrency(n: number, currency = 'EUR') {
   return new Intl.NumberFormat('fi-FI', {
     style: 'currency',
@@ -44,7 +51,6 @@ export default function InvoiceDetailPage() {
 
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [lines, setLines] = useState<InvoiceLine[]>([])
-  const [org, setOrg] = useState<Organization | null>(null)
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
@@ -60,13 +66,8 @@ export default function InvoiceDetailPage() {
       } = await supabase.auth.getUser()
       if (!user) return
 
-      const [{ data: orgData }, { data: invData }, { data: linesData }] =
+      const [{ data: invData }, { data: linesData }] =
         await Promise.all([
-          supabase
-            .from('jp_organizations')
-            .select('*')
-            .eq('owner_user_id', user.id)
-            .maybeSingle(),
           supabase
             .from('jp_invoices')
             .select('*')
@@ -84,7 +85,6 @@ export default function InvoiceDetailPage() {
         return
       }
 
-      setOrg(orgData)
       setInvoice(invData as Invoice)
       setLines((linesData as InvoiceLine[]) || [])
 
@@ -292,13 +292,11 @@ export default function InvoiceDetailPage() {
             <div className="text-2xl font-bold tracking-tight">
               Just<span className="text-green-400">.</span>Pay
             </div>
-            {org && (
-              <div className="mt-2 text-sm text-gray-300 space-y-0.5">
-                <p className="font-medium text-white">{org.name}</p>
-                {org.business_id && <p>Y-tunnus: {org.business_id}</p>}
-                <p>{org.country}</p>
-              </div>
-            )}
+            <div className="mt-2 text-sm text-gray-300 space-y-0.5">
+              <p className="font-medium text-white">{KANSALLISVARANTO.name}</p>
+              <p>Y-tunnus: {KANSALLISVARANTO.businessId}</p>
+              <p>{KANSALLISVARANTO.address}</p>
+            </div>
           </div>
 
           <div className="text-right">
@@ -352,6 +350,29 @@ export default function InvoiceDetailPage() {
           ) : (
             <p className="text-gray-400 text-sm">Asiakasta ei löydy</p>
           )}
+        </div>
+
+        {/* Työn tiedot: tekijä + ajankohta, erillään laskuttajasta */}
+        <div className="px-8 py-6 border-b border-gray-100">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+            Työn tiedot
+          </p>
+          <div className="text-sm space-y-0.5">
+            <p className="text-gray-800">
+              <span className="text-gray-500">Työn suoritti:</span>{' '}
+              <span className="font-medium text-gray-900">
+                {invoice.worker_name || '—'}
+              </span>
+            </p>
+            {formatServiceDate(invoice.service_date_start, invoice.service_date_end) && (
+              <p className="text-gray-800">
+                <span className="text-gray-500">Työn ajankohta:</span>{' '}
+                <span className="font-medium text-gray-900">
+                  {formatServiceDate(invoice.service_date_start, invoice.service_date_end)}
+                </span>
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Line items */}
