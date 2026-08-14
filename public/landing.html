@@ -275,11 +275,11 @@
       <a href="#ai-reititys">AI-reititys</a>
       <a href="#how">Miten toimii</a>
       <a href="#pricing">Hinnoittelu</a>
-      <a href="#signup">Aloita</a>
+      <a href="#ai-reititys">Aloita</a>
       <a href="https://getjust.fi" target="_blank" rel="noopener">getjust.fi</a>
       <a href="/login">Kirjaudu</a>
     </div>
-    <a href="/login" class="nav-cta">Aloita ilmaiseksi</a>
+    <a href="#ai-reititys" class="nav-cta">Aloita ilmaiseksi</a>
   </div>
 </nav>
 
@@ -302,7 +302,7 @@
       <span><span class="dot"></span> 0 € aloitusmaksu</span>
     </div>
 
-    <a href="#signup" class="cta-primary">
+    <a href="#ai-reititys" class="cta-primary">
       Aloita laskutus yhdellä prosentilla
       <span style="font-size:22px; line-height:1;">→</span>
     </a>
@@ -370,7 +370,7 @@
       <h3 style="margin-bottom:12px; color:var(--green);">AI-suosituksesi</h3>
       <div id="ai-recommendation"></div>
       <div style="margin-top:24px; display:flex; gap:12px; flex-wrap:wrap;">
-        <a href="#signup" class="cta-primary" style="padding:12px 28px; font-size:14px;">Aloita Just.Payllä nyt</a>
+        <a href="#signup" class="cta-primary" style="padding:12px 28px; font-size:14px;" onclick="proceedToSignup()">Aloita Just.Payllä nyt</a>
         <a href="https://getjust.fi" target="_blank" style="color:var(--green); text-decoration:none; align-self:center; font-weight:600;">Katso myös getjust.fi →</a>
       </div>
     </div>
@@ -472,7 +472,7 @@
         <li>✓ AI-reititys &amp; tuki</li>
         <li>✓ Integraatio getjust.fi:hen</li>
       </ul>
-      <a href="#signup" class="cta-primary" style="width:100%; justify-content:center; padding:14px;">Aloita ilmaiseksi</a>
+      <a href="#ai-reititys" class="cta-primary" style="width:100%; justify-content:center; padding:14px;">Aloita ilmaiseksi</a>
     </div>
 
     <!-- Popular -->
@@ -488,7 +488,7 @@
         <li>✓ Kirjanpitoapu &amp; raportit</li>
         <li>✓ Oma API &amp; integraatiot</li>
       </ul>
-      <a href="#signup" class="cta-primary" style="width:100%; justify-content:center; padding:14px; background:#08120c; color:#fff; border:1px solid var(--green);">Valitse Pro</a>
+      <a href="#ai-reititys" class="cta-primary" style="width:100%; justify-content:center; padding:14px; background:#08120c; color:#fff; border:1px solid var(--green);">Valitse Pro</a>
     </div>
 
     <div class="pricing-card">
@@ -503,7 +503,7 @@
         <li>✓ Räätälöidyt integraatiot</li>
         <li>✓ Sopimusneuvottelut</li>
       </ul>
-      <a href="#signup" style="display:block; text-align:center; color:var(--green); font-weight:700; text-decoration:none;">Ota yhteyttä myyntiin →</a>
+      <a href="#ai-reititys" style="display:block; text-align:center; color:var(--green); font-weight:700; text-decoration:none;">Ota yhteyttä myyntiin →</a>
     </div>
   </div>
 
@@ -553,12 +553,14 @@
       <h3 style="margin-bottom:20px;">2. AI:n suositus sinulle</h3>
       <div style="background:#08120c; padding:24px; border-radius:16px; border:1px solid var(--green);">
         <strong style="color:var(--green);">Suosituksemme:</strong><br>
-        <span style="font-size:21px; font-weight:700;">Just.Pay Kevytyrittäjä + getjust.fi -integraatio</span><br><br>
-        <span style="color:var(--text-muted);">Sopii parhaiten valitsemaasi tilanteeseen. Helppo aloittaa ja skaalautuu myöhemmin toiminimeksi.</span>
+        <div id="stepper-recommendation">
+          <span style="font-size:21px; font-weight:700;">Just.Pay Perus (1 %)</span><br><br>
+          <span style="color:var(--text-muted);">Sopii parhaiten valitsemaasi tilanteeseen. Helppo aloittaa ja skaalautuu myöhemmin toiminimeksi.</span>
+        </div>
       </div>
       <div style="margin-top:24px; display:flex; gap:12px;">
         <button onclick="nextStep(3)" class="cta-primary" style="flex:1;">Hyväksy suositus</button>
-        <button onclick="nextStep(3)" style="flex:1; background:transparent; border:1px solid var(--green); color:var(--green); padding:14px; border-radius:999px; font-weight:700; cursor:pointer;">Muuta reittiä</button>
+        <button onclick="changeRoute()" style="flex:1; background:transparent; border:1px solid var(--green); color:var(--green); padding:14px; border-radius:999px; font-weight:700; cursor:pointer;">Muuta reittiä</button>
       </div>
     </div>
 
@@ -603,7 +605,7 @@
 <section style="text-align:center; padding-bottom:100px;">
   <h2 style="font-size:32px; margin-bottom:16px;">Valmis aloittamaan?</h2>
   <p style="color:var(--text-muted); margin-bottom:32px;">Liity tuhansien tyytyväisten palvelualan tekijöiden joukkoon.</p>
-  <a href="#signup" class="cta-primary">Aloita ilmaiseksi nyt →</a>
+  <a href="#ai-reititys" class="cta-primary">Aloita ilmaiseksi nyt →</a>
 </section>
 
 <footer>
@@ -801,10 +803,46 @@ function animate() {
 animate();
 
 // ==================== AI REITITYS ====================
+// Holds the visitor's actual AI-reititys answers + computed recommendation,
+// shared with the #signup stepper so step 2 reflects real input instead of
+// a hardcoded placeholder. Null until analyzeAI() has run at least once.
+let routingAnswers = null;
+
 function toggleAlaMuu() {
   const isMuu = document.getElementById('ala').value === 'Muu';
   document.getElementById('ala-muu-group').style.display = isMuu ? 'block' : 'none';
   if (!isMuu) document.getElementById('ala-muu').value = '';
+}
+
+function toimialaLabel(ala, alaMuu) {
+  if (ala === 'Muu') return alaMuu || 'Muu palveluala';
+  return ala || '';
+}
+
+// Single source of truth for the recommendation, used both by the
+// #ai-reititys demo panel and the #signup stepper's step 2.
+function computeRecommendation(ala, alaMuu, laskutus, ytunnus) {
+  const toimiala = toimialaLabel(ala, alaMuu);
+  const toimialaClause = toimiala ? ` Toimialasi: ${toimiala}.` : '';
+
+  let recommendation = '';
+  let reason = '';
+
+  if (ytunnus === 'ei') {
+    recommendation = 'Just.Pay Kevytyrittäjä + getjust.fi -integraatio';
+    reason = 'Sinulla ei ole vielä Y-tunnusta. Helpoin ja edullisin tapa aloittaa. Voit skaalata myöhemmin toiminimeksi tai oy:ksi.' + toimialaClause;
+  } else if (ytunnus === 'kylla' && laskutus === 'yli5000') {
+    recommendation = 'Just.Pay Pro (0,85 %) + toiminimi-tuki';
+    reason = 'Korkea laskutusvolyymi + olemassa oleva Y-tunnus. Saat paremman hinnan ja prioriteettituen.' + toimialaClause;
+  } else if (ytunnus === 'oy') {
+    recommendation = 'Just.Pay Yritys-ratkaisu (räätälöity)';
+    reason = 'Osakeyhtiö vaatii usein laajemman tuen. Räätälöimme sinulle sopivan kokonaisuuden.' + toimialaClause;
+  } else {
+    recommendation = 'Just.Pay Perus (1 %)';
+    reason = 'Hyvä lähtökohta. Voit milloin tahansa vaihtaa Pro-tasolle volyymin kasvaessa.' + toimialaClause;
+  }
+
+  return { recommendation, reason };
 }
 
 function analyzeAI() {
@@ -813,22 +851,8 @@ function analyzeAI() {
   const laskutus = document.getElementById('laskutus').value;
   const ytunnus = document.getElementById('ytunnus').value;
 
-  let recommendation = '';
-  let reason = '';
-
-  if (ytunnus === 'ei') {
-    recommendation = 'Just.Pay Kevytyrittäjä + getjust.fi -integraatio';
-    reason = 'Sinulla ei ole vielä Y-tunnusta. Helpoin ja edullisin tapa aloittaa. Voit skaalata myöhemmin toiminimeksi tai oy:ksi.';
-  } else if (ytunnus === 'kylla' && laskutus === 'yli5000') {
-    recommendation = 'Just.Pay Pro (0,85 %) + toiminimi-tuki';
-    reason = 'Korkea laskutusvolyymi + olemassa oleva Y-tunnus. Saat paremman hinnan ja prioriteettituen.';
-  } else if (ytunnus === 'oy') {
-    recommendation = 'Just.Pay Yritys-ratkaisu (räätälöity)';
-    reason = 'Osakeyhtiö vaatii usein laajemman tuen. Räätälöimme sinulle sopivan kokonaisuuden.';
-  } else {
-    recommendation = 'Just.Pay Perus (1 %)';
-    reason = 'Hyvä lähtökohta. Voit milloin tahansa vaihtaa Pro-tasolle volyymin kasvaessa.';
-  }
+  const { recommendation, reason } = computeRecommendation(ala, alaMuu, laskutus, ytunnus);
+  routingAnswers = { ala, alaMuu, laskutus, ytunnus, recommendation, reason };
 
   const resultDiv = document.getElementById('ai-result');
   document.getElementById('ai-recommendation').innerHTML = `
@@ -840,8 +864,31 @@ function analyzeAI() {
   resultDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+// Hand-off from the #ai-reititys result panel into the #signup stepper.
+// Always (re)starts the stepper at step 1 so the funnel is consistent
+// regardless of what step it was left on previously.
+function proceedToSignup() {
+  showStep(1);
+}
+
 // ==================== SIGNUP STEPPER ====================
 let currentStep = 1;
+
+function renderStepperStep2() {
+  const el = document.getElementById('stepper-recommendation');
+  if (routingAnswers) {
+    el.innerHTML = `
+      <span style="font-size:21px; font-weight:700;">${routingAnswers.recommendation}</span><br><br>
+      <span style="color:var(--text-muted);">${routingAnswers.reason}</span>
+    `;
+  } else {
+    el.innerHTML = `
+      <span style="font-size:21px; font-weight:700;">Just.Pay Perus (1 %)</span><br><br>
+      <span style="color:var(--text-muted);">Et ole vielä vastannut AI-reititykseen. Tämä on yleinen oletussuositus —
+      <a href="#ai-reititys" onclick="changeRoute()" style="color:var(--green);">täytä tilanteesi yllä</a> saadaksesi sinulle räätälöidyn suosituksen.</span>
+    `;
+  }
+}
 
 function showStep(step) {
   document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
@@ -851,10 +898,20 @@ function showStep(step) {
     dot.classList.toggle('active', (i+1) <= step);
   });
   currentStep = step;
+
+  if (step === 2) renderStepperStep2();
 }
 
 function nextStep(step) {
   showStep(step);
+}
+
+// "Muuta reittiä" is distinct from "Hyväksy suositus": it sends the visitor
+// back to #ai-reititys to change their answers, instead of accepting the
+// current recommendation and moving on to payment details.
+function changeRoute() {
+  showStep(1);
+  location.hash = 'ai-reititys';
 }
 
 function finishSignup() {
