@@ -47,8 +47,9 @@ export default function DashboardLayout({
 
       // Sopimusportti: tämä on vain käyttöliittymän mukavuusohjaus,
       // ei varsinainen esto — todellinen esto on RLS-tasolla
-      // (ks. migration_009), joten suora API-kutsu ei pysty
-      // ohittamaan sitä vaikka tämä redirect jäisikin väliin.
+      // (ks. migration_010, joka on toistaiseksi jäädytetty kunnes
+      // Bink-allekirjoituspolku on testattu), joten suora API-kutsu
+      // ei pysty ohittamaan sitä vaikka tämä redirect jäisikin väliin.
       if (org && !org.contract_signed_at && pathname !== '/contract') {
         router.push('/contract')
         return
