@@ -1,26 +1,26 @@
 -- =============================================================
--- Just.Pay – migraatio 009: sopimuksen sähköinen allekirjoitus
--- + vahva tunnistautuminen -portti ennen dashboardia
+-- Just.Pay – migraatio 009: sopimuksen sähköisen allekirjoituksen
+-- SKEEMA (taulut, Storage-bucket, contract_signed_at-sarake)
 --
 -- Tausta: toimeksianto-/laskutuspalvelusopimus pitää esittää joka
 -- tekijälle onboardingin jälkeen, ja tekijä ei saa päästä mihinkään
 -- muuhun osaan sovellusta ennen kuin sopimus on allekirjoitettu
 -- vahvalla tunnistautumisella (Bink.fi, pankkitunnukset/mobiili-
--- varmenne). Portti on toteutettava RLS-tasolla, ei vain UI:ssa —
--- nykyinen /onboarding-portti on vain (dashboard)/layout.tsx:n
--- client-puolen tarkistus, jonka suora API-kutsu pystyy ohittamaan.
+-- varmenne).
 --
--- ⚠️⚠️⚠️ TÄRKEÄ AJOITUSHUOMIO ENNEN TÄMÄN AJAMISTA ⚠️⚠️⚠️
--- Heti kun tämän migraation lopussa olevat RLS-käytännöt astuvat
--- voimaan, JOKAINEN jo olemassa oleva organisaatio (myös pilotti-
--- asiakkaan, jos onboarding on jo tehty ja dataa on jo luotu)
--- menettää pääsyn omiin laskuihinsa/asiakkaisiinsa/maksuihinsa
--- VÄLITTÖMÄSTI, koska contract_signed_at on NULL kaikilla vanhoilla
--- riveillä. ÄLÄ aja tätä migraatiota ennen kuin koko allekirjoitus-
--- polku (Bink-sandbox-tunnukset asetettu, oikea sopimus-PDF ladattu
--- Storageen, webhook testattu päästä päähän) on todistetusti
--- toimiva — muuten lukitset olemassa olevan datan ilman keinoa
--- päästä siitä läpi.
+-- HUOM — tämä on tarkoituksella jaettu kahteen migraatioon:
+--   009 (tämä tiedosto) = pelkkä skeema. Pelkästään lisäävä — ei
+--     kosketa yhtäkään olemassa olevaa riviä minkään käyttäjän
+--     laskuissa/asiakkaissa/maksuissa, joten TÄMÄN voi ajaa jo
+--     ennen kuin Bink-allekirjoituspolku on testattu valmiiksi.
+--     Tarvitaan juuri sitä testausta varten (jp_contract_templates,
+--     jp_contract_signatures ja contract_signed_at-sarake ovat
+--     sovelluksen /contract-reitin ja sen API-reittien edellytyksiä).
+--   010 (migration_010_contract_signature_rls_gate.sql) = varsinainen
+--     esto: kiristää jp_customers/jp_invoices/jp_invoice_lines/
+--     jp_payments-käytännöt vaatimaan contract_signed_at IS NOT NULL.
+--     TÄTÄ EI SAA AJAA ennen kuin allekirjoituspolku on todistetusti
+--     testattu päästä päähän — ks. sen tiedoston oma varoitus.
 -- =============================================================
 
 -- ----------------------------------------------------------------
@@ -178,76 +178,7 @@ CREATE TRIGGER jp_organizations_protect_contract_signed_at
   FOR EACH ROW
   EXECUTE FUNCTION public.protect_contract_signed_at();
 
--- ----------------------------------------------------------------
--- 6) Sopimusportin todellinen esto: jp_customers/jp_invoices/
---    jp_invoice_lines/jp_payments vaativat nyt contract_signed_at
---    IS NOT NULL omistajuuden lisäksi. Tämä on se rakenteellinen
---    esto — suora API-kutsu ei enää pysty ohittamaan porttia, koska
---    tietokanta itse kieltäytyy palauttamasta/kirjoittamasta rivejä
---    allekirjoittamattomalle organisaatiolle.
--- ----------------------------------------------------------------
-DROP POLICY IF EXISTS "customers: org-omistaja pääsee käsiksi" ON public.jp_customers;
-CREATE POLICY "customers: org-omistaja pääsee käsiksi"
-  ON public.jp_customers FOR ALL
-  USING (
-    org_id IN (
-      SELECT id FROM public.jp_organizations
-      WHERE owner_user_id = auth.uid() AND contract_signed_at IS NOT NULL
-    )
-  )
-  WITH CHECK (
-    org_id IN (
-      SELECT id FROM public.jp_organizations
-      WHERE owner_user_id = auth.uid() AND contract_signed_at IS NOT NULL
-    )
-  );
-
-DROP POLICY IF EXISTS "invoices: org-omistaja pääsee käsiksi" ON public.jp_invoices;
-CREATE POLICY "invoices: org-omistaja pääsee käsiksi"
-  ON public.jp_invoices FOR ALL
-  USING (
-    org_id IN (
-      SELECT id FROM public.jp_organizations
-      WHERE owner_user_id = auth.uid() AND contract_signed_at IS NOT NULL
-    )
-  )
-  WITH CHECK (
-    org_id IN (
-      SELECT id FROM public.jp_organizations
-      WHERE owner_user_id = auth.uid() AND contract_signed_at IS NOT NULL
-    )
-  );
-
-DROP POLICY IF EXISTS "invoice_lines: org-omistaja pääsee käsiksi" ON public.jp_invoice_lines;
-CREATE POLICY "invoice_lines: org-omistaja pääsee käsiksi"
-  ON public.jp_invoice_lines FOR ALL
-  USING (
-    invoice_id IN (
-      SELECT i.id FROM public.jp_invoices i
-      JOIN   public.jp_organizations o ON o.id = i.org_id
-      WHERE  o.owner_user_id = auth.uid() AND o.contract_signed_at IS NOT NULL
-    )
-  )
-  WITH CHECK (
-    invoice_id IN (
-      SELECT i.id FROM public.jp_invoices i
-      JOIN   public.jp_organizations o ON o.id = i.org_id
-      WHERE  o.owner_user_id = auth.uid() AND o.contract_signed_at IS NOT NULL
-    )
-  );
-
-DROP POLICY IF EXISTS "payments: org-omistaja pääsee käsiksi" ON public.jp_payments;
-CREATE POLICY "payments: org-omistaja pääsee käsiksi"
-  ON public.jp_payments FOR ALL
-  USING (
-    org_id IN (
-      SELECT id FROM public.jp_organizations
-      WHERE owner_user_id = auth.uid() AND contract_signed_at IS NOT NULL
-    )
-  )
-  WITH CHECK (
-    org_id IN (
-      SELECT id FROM public.jp_organizations
-      WHERE owner_user_id = auth.uid() AND contract_signed_at IS NOT NULL
-    )
-  );
+-- Tämä migraatio päättyy tähän tarkoituksella. Sopimusportin
+-- todellinen esto (RLS jp_customers/jp_invoices/jp_invoice_lines/
+-- jp_payments-tauluille) on migration_010_contract_signature_rls_gate.sql
+-- — katso sen tiedoston varoitus ennen ajamista.

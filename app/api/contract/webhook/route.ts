@@ -53,6 +53,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unrecognized event' }, { status: 400 })
   }
 
+  // TEMPORARY — remove once the sandbox test has confirmed the real
+  // payload shape. Nothing here is secret (webhook secret itself is
+  // never logged), but this is more verbose than we want long-term.
+  console.log('[bink-webhook] payload:', JSON.stringify(payload))
+
   const supabase = createServiceClient()
 
   // Dedupe on the webhook's own event id — but only skip if a PRIOR
@@ -117,6 +122,10 @@ export async function POST(request: NextRequest) {
       let documentDetails: Record<string, unknown> | null = null
       try {
         documentDetails = await getDocument(documentId)
+        // TEMPORARY — remove once the sandbox test has confirmed the
+        // real response shape and extractVerifiedName() below is
+        // adjusted to match it.
+        console.log('[bink-webhook] getDocument response:', JSON.stringify(documentDetails))
       } catch (err) {
         console.error('Bink getDocument failed after signed webhook:', err)
         // Don't fail the whole webhook over this — the signature IS

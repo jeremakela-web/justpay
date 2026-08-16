@@ -120,6 +120,12 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    // TEMPORARY — remove once the sandbox test has confirmed the
+    // real quick-create response shape. Deliberately logs only the
+    // document object, never `created.signees` (that echoes back the
+    // henkilötunnus we just sent).
+    console.log('[bink-start] quick-create document:', JSON.stringify(created.document))
+
     const { error: insertErr } = await supabase.from('jp_contract_signatures').insert({
       org_id: org.id,
       contract_version: template.version,
