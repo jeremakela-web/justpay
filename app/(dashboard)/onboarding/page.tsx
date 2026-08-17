@@ -33,10 +33,18 @@ const CURRENCIES = [
   { code: 'DKK', name: 'Tanskan kruunu (kr)' },
 ]
 
+type AccountType = 'individual' | 'company'
+
 export default function OnboardingPage() {
   const router = useRouter()
   const supabase = createClient()
 
+  // Kevytyrittäjät (ei Y-tunnusta) ovat Just.Payn ydinkohderyhmä, joten
+  // se on oletusvalinta — mutta moni myös laskuttaa oman Y-tunnuksensa
+  // kautta, joten molemmat pitää tukea eksplisiittisesti, ei olettaa
+  // kumpaakaan pelkän kentän täyttöasteen perusteella (se olisi
+  // hämärää: label ei saa muuttua kesken kirjoittamisen).
+  const [accountType, setAccountType] = useState<AccountType>('individual')
   const [name, setName] = useState('')
   const [businessId, setBusinessId] = useState('')
   const [industry, setIndustry] = useState('')
@@ -48,6 +56,7 @@ export default function OnboardingPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim() || !industry) return
+    if (accountType === 'company' && !businessId.trim()) return
 
     setSaving(true)
     setError(null)
@@ -64,7 +73,7 @@ export default function OnboardingPage() {
     const { error } = await supabase.from('jp_organizations').insert({
       owner_user_id: user.id,
       name: name.trim(),
-      business_id: businessId.trim() || null,
+      business_id: accountType === 'company' ? businessId.trim() : null,
       industry,
       country,
       currency,
@@ -88,17 +97,54 @@ export default function OnboardingPage() {
             Just<span className="text-green-500">.</span>Pay
           </h1>
           <p className="mt-3 text-zinc-400">
-            Tervetuloa! Kerro ensin yrityksestäsi.
+            Tervetuloa! Kerro ensin itsestäsi.
           </p>
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
-          <h2 className="text-lg font-semibold mb-6">Yrityksen tiedot</h2>
+          <h2 className="text-lg font-semibold mb-6">Tilin tiedot</h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm text-zinc-400 mb-1.5">
-                Yrityksen nimi <span className="text-red-400">*</span>
+                Laskutatko yksityishenkilönä vai yrityksenä?
+              </label>
+              <div className="flex bg-zinc-800 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setAccountType('individual')}
+                  className={`flex-1 py-1.5 text-sm rounded-md transition-colors ${
+                    accountType === 'individual'
+                      ? 'bg-zinc-700 text-white'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Yksityishenkilö
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAccountType('company')}
+                  className={`flex-1 py-1.5 text-sm rounded-md transition-colors ${
+                    accountType === 'company'
+                      ? 'bg-zinc-700 text-white'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  Yritys (Y-tunnus)
+                </button>
+              </div>
+              {accountType === 'individual' && (
+                <p className="mt-1.5 text-xs text-zinc-500">
+                  Ei Y-tunnusta? Ei hätää — Kansallisvaranto Oy laskuttaa
+                  puolestasi kevytyrittäjänä.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1.5">
+                {accountType === 'individual' ? 'Oma nimi' : 'Yrityksen nimi'}{' '}
+                <span className="text-red-400">*</span>
               </label>
               <input
                 type="text"
@@ -106,22 +152,25 @@ export default function OnboardingPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
-                placeholder="Yritys Oy"
+                placeholder={accountType === 'individual' ? 'Etunimi Sukunimi' : 'Yritys Oy'}
               />
             </div>
 
-            <div>
-              <label className="block text-sm text-zinc-400 mb-1.5">
-                Y-tunnus
-              </label>
-              <input
-                type="text"
-                value={businessId}
-                onChange={(e) => setBusinessId(e.target.value)}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
-                placeholder="1234567-8"
-              />
-            </div>
+            {accountType === 'company' && (
+              <div>
+                <label className="block text-sm text-zinc-400 mb-1.5">
+                  Y-tunnus <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={businessId}
+                  onChange={(e) => setBusinessId(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500"
+                  placeholder="1234567-8"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-sm text-zinc-400 mb-1.5">
@@ -188,7 +237,12 @@ export default function OnboardingPage() {
 
             <button
               type="submit"
-              disabled={saving || !name.trim() || !industry}
+              disabled={
+                saving ||
+                !name.trim() ||
+                !industry ||
+                (accountType === 'company' && !businessId.trim())
+              }
               className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors mt-2"
             >
               {saving ? 'Tallennetaan...' : 'Aloita →'}
