@@ -141,8 +141,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error('Bink signing flow failed:', err)
+    // TEMPORARY — surfacing the real error to the client for the live
+    // sandbox test, since Netlify function logs aren't reachable from
+    // here. err.message only ever contains Bink's HTTP status + response
+    // body or a missing-env-var message — never the henkilötunnus itself
+    // (createSigningDocument/sendForSigning never echo `pic` back into
+    // their own thrown Error). REVERT after this test is done.
+    const debugDetail = err instanceof Error ? err.message : String(err)
     return NextResponse.json(
-      { error: 'Allekirjoitusprosessin käynnistys epäonnistui. Yritä myöhemmin uudelleen.' },
+      {
+        error: 'Allekirjoitusprosessin käynnistys epäonnistui. Yritä myöhemmin uudelleen.',
+        debug: debugDetail,
+      },
       { status: 502 }
     )
   }

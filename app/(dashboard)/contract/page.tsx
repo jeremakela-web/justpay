@@ -57,10 +57,16 @@ export default function ContractPage() {
         alreadySigned?: boolean
         resent?: boolean
         error?: string
+        debug?: string
       }
 
       if (!res.ok || data.error) {
-        setError(data.error ?? 'Allekirjoitusprosessin käynnistys epäonnistui.')
+        // TEMPORARY — data.debug is only ever present during the live
+        // sandbox test (see the matching TEMPORARY comment in
+        // app/api/contract/start/route.ts). REVERT both together.
+        setError(
+          data.debug ? `${data.error} [DEBUG: ${data.debug}]` : data.error ?? 'Allekirjoitusprosessin käynnistys epäonnistui.'
+        )
         setSubmitting(false)
         return
       }
