@@ -62,7 +62,7 @@ export default function LoginPage() {
       // "Yrityksen nimi" -kenttään. Yksi lomake, oikeat kentät,
       // molemmille kohderyhmille (ks. onboarding-sivun kenttien
       // haarautus tili tyypin mukaan).
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -71,6 +71,18 @@ export default function LoginPage() {
       })
       if (error) {
         setError(error.message)
+      } else if (data.session) {
+        // Projektin Auth-asetuksissa "Confirm email" on pois päältä
+        // (autoconfirm) — signUp() palauttaa silloin jo voimassa
+        // olevan sessionin eikä mitään vahvistusviestiä koskaan
+        // lähetetä. Aiemmin tämä haara ei tarkistanut sitä lainkaan
+        // ja näytti "tarkista sähköpostisi" -viestin joka tapauksessa,
+        // jolloin käyttäjä jäi odottamaan sähköpostia jota ei koskaan
+        // tule eikä koskaan päässyt /onboarding-sivulle asti, vaikka
+        // oli jo kirjautuneena sisään. (dashboard)/layout.tsx ohjaa jo
+        // /onboarding-sivulle kun organisaatiota ei löydy.
+        router.push('/')
+        router.refresh()
       } else {
         setMessage(
           'Tarkista sähköpostisi ja vahvista rekisteröityminen. Löydät viestin myös roskapostista.'
