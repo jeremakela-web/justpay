@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { FileText, Users, LogOut, Menu, X, Building2 } from 'lucide-react'
+import { FileText, Users, LogOut, Menu, X, Building2, ScanLine } from 'lucide-react'
 
 const navItems = [
   { href: '/', label: 'Laskut', icon: FileText },
   { href: '/customers', label: 'Asiakkaat', icon: Users },
+  { href: '/invoices/drafts', label: 'Kuvista', icon: ScanLine },
 ]
 
 export default function DashboardLayout({
@@ -89,7 +90,8 @@ export default function DashboardLayout({
             const Icon = item.icon
             const isActive =
               item.href === '/'
-                ? pathname === '/' || pathname.startsWith('/invoices')
+                ? pathname === '/' ||
+                  (pathname.startsWith('/invoices') && !pathname.startsWith('/invoices/drafts'))
                 : pathname.startsWith(item.href)
             return (
               <Link
