@@ -7,8 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Customer, VatRule, Organization } from '@/types/database'
 import { generateInvoiceNumber } from '@/lib/utils/invoice-number'
 import { generateFinnishReferenceNumber } from '@/lib/utils/reference-number'
-import { Plus, Trash2, ArrowLeft, Camera, X, ExternalLink, Sparkles } from 'lucide-react'
-import type { ExtractedLine } from '@/app/api/invoices/extract/route'
+import { Plus, Trash2, ArrowLeft, Camera, ExternalLink, Sparkles } from 'lucide-react'
 import type { AddonSuggestion } from '@/app/api/addon-suggestions/route'
 
 interface LineItem {
@@ -43,11 +42,6 @@ export default function NewInvoicePage() {
   const [vatRulesChecked, setVatRulesChecked] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [imageBase64, setImageBase64] = useState<string | null>(null)
-  const [imageMediaType, setImageMediaType] = useState<string>('image/jpeg')
-  const [extracting, setExtracting] = useState(false)
-  const [extractError, setExtractError] = useState<string | null>(null)
   const [pricesIncludeVat, setPricesIncludeVat] = useState(false)
   const [showAddons, setShowAddons] = useState(false)
   const [addonSuggestions, setAddonSuggestions] = useState<AddonSuggestion[]>([])
@@ -189,57 +183,6 @@ export default function NewInvoicePage() {
         return { ...l, [field]: value }
       })
     )
-  }
-
-  const handleImageFile = (file: File) => {
-    setExtractError(null)
-    setImageMediaType(file.type || 'image/jpeg')
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string
-      setImagePreview(dataUrl)
-      // Strip the "data:<type>;base64," prefix to get raw base64
-      setImageBase64(dataUrl.split(',')[1] ?? null)
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const handleExtract = async () => {
-    if (!imageBase64) return
-    setExtracting(true)
-    setExtractError(null)
-    try {
-      const res = await fetch('/api/invoices/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: imageBase64, media_type: imageMediaType }),
-      })
-      const data = await res.json() as { lines: ExtractedLine[]; error?: string }
-      if (data.lines && data.lines.length > 0) {
-        const defaultRule = vatRules[0]
-        setLines(
-          data.lines.map((l, i) => {
-            const matchedRule = vatRules.find((r) => r.rate === l.vat_rate)
-            return {
-              id: `extracted-${i}-${Date.now()}`,
-              description: l.description,
-              quantity: String(l.quantity),
-              unit_price: String(l.unit_price),
-              vat_category: matchedRule?.category ?? defaultRule?.category ?? '',
-              vat_rate: matchedRule?.rate ?? l.vat_rate,
-            }
-          })
-        )
-        // Clear image after successful extraction
-        setImagePreview(null)
-        setImageBase64(null)
-      }
-      if (data.error) setExtractError(data.error)
-    } catch {
-      setExtractError('tarkista rivit manuaalisesti')
-    } finally {
-      setExtracting(false)
-    }
   }
 
   const fetchAddonSuggestions = useCallback(async () => {
@@ -554,21 +497,13 @@ export default function NewInvoicePage() {
                 </span>
               </label>
             </div>
-            <label className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-green-400 cursor-pointer transition-colors">
+            <Link
+              href="/invoices/drafts"
+              className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-green-400 transition-colors"
+            >
               <Camera size={14} />
               Poimi kuvasta
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="sr-only"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) handleImageFile(file)
-                  e.target.value = ''
-                }}
-              />
-            </label>
+            </Link>
           </div>
 
           {vatRulesChecked && vatRules.length === 0 && (
@@ -578,51 +513,6 @@ export default function NewInvoicePage() {
               määrittelemättä. Tarkista maa- ja päivämäärävalinta, tai lisää
               puuttuva ALV-sääntö ennen jatkamista.
             </div>
-          )}
-
-          {/* Image preview + extract */}
-          {imagePreview && (
-            <div className="mb-4 flex items-start gap-3 p-3 bg-zinc-800 border border-zinc-700 rounded-lg">
-              <img
-                src={imagePreview}
-                alt="Valittu kuva"
-                className="w-16 h-16 object-cover rounded-md shrink-0"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-zinc-400 mb-2">Kuva valittu. Poimitaanko laskurivit AI:lla?</p>
-                {extractError && (
-                  <p className="text-xs text-amber-400 mb-2">{extractError}</p>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleExtract}
-                    disabled={extracting}
-                    className="flex items-center gap-1.5 text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    {extracting ? (
-                      <>
-                        <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
-                        Poimitaan…
-                      </>
-                    ) : (
-                      'Poimi laskurivit AI:lla'
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setImagePreview(null); setImageBase64(null); setExtractError(null) }}
-                    className="flex items-center gap-1 text-xs text-zinc-400 hover:text-white px-2 py-1.5 transition-colors"
-                  >
-                    <X size={12} />
-                    Poista
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          {extractError && !imagePreview && (
-            <p className="text-xs text-amber-400 mb-3">{extractError} — tarkista rivit manuaalisesti</p>
           )}
 
           <div className="space-y-3">

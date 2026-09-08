@@ -79,6 +79,10 @@ export interface InvoiceLine {
   vat_amount: number
   line_total: number
   sort_order: number
+  // Rivikohtainen työn ajankohta (ks. migration_011) — erillään
+  // Invoice.service_date_start/end:stä, joka kattaa koko laskun.
+  // Nullable: manuaalisesti täytetyt laskut eivät käytä tätä.
+  service_date: string | null
 }
 
 // Tekijän maksun (Kansallisvaranto -> tekijä) seurantarivi. Yksi rivi per
@@ -128,4 +132,72 @@ export interface ServiceFeeDocument {
   total_amount: number
   currency: string
   created_at: string
+}
+
+// Yksi kuvasta-poimittu laskurivi (ks. migration_011). confidence on
+// mallin oma 0-100-arvio TÄMÄN rivin lukuvarmuudesta kokonaisuutena —
+// ei erikseen per kenttä. Rivin summa (quantity × unit_price) lasketaan
+// aina sovelluskoodissa, ei koskaan pyydetä mallilta.
+export interface ExtractedDraftLine {
+  description: string
+  quantity: number
+  unit_price: number
+  vat_rate: number
+  service_date: string | null
+  confidence: number
+}
+
+export interface ExtractedDraftData {
+  lines: ExtractedDraftLine[]
+  // Mallin paras arvaus asiakkaasta/tekijästä kuvan tekstin perusteella
+  // (esim. kuitin yrityksen nimi, tuntilapun tekijän nimi) — ei
+  // sidottu mihinkään olemassa olevaan jp_customers-riviin tässä
+  // vaiheessa, vain tarkistusnäkymän esitäyttöä ja
+  // new_customer-poikkeamatarkistusta varten.
+  customer_suggestion: string | null
+  worker_suggestion: string | null
+  // Sovelluskoodin laskemat rivien summista, ei koskaan mallin
+  // tulostetta.
+  computed_subtotal: number
+  computed_vat_total: number
+  computed_total: number
+}
+
+export interface InvoiceDraftFieldConfidence {
+  lines: { index: number; confidence: number }[]
+}
+
+export interface InvoiceDraftValidationFlags {
+  new_customer?: boolean
+  // Aiempien laskujen keskiarvoon verrattuna poikkeuksellisen suuri/
+  // pieni summa — ks. app/api/invoices/extract/route.ts:n kommentti
+  // kynnysarvosta. Puuttuu (ei false) kun vertailuun ei ollut
+  // riittävästi historiaa.
+  unusual_amount?: boolean
+  // Rivi-indeksit, joiden kuvaus ei muistuta mitään aiempaa riviä
+  // tässä organisaatiossa — heuristiikka, ei tarkka luokittelija.
+  out_of_pattern_lines?: number[]
+  // Toisen samansisältöisen (sama content_hash) draftin id samassa
+  // organisaatiossa. Lippu, ei esto — kaksoiskappale on laillinen.
+  duplicate_of_draft_id?: string | null
+}
+
+export interface InvoiceDraft {
+  id: string
+  org_id: string
+  status: 'uploaded' | 'processing' | 'ready_for_review' | 'approved' | 'rejected' | 'failed'
+  source_file_path: string
+  source_file_name: string
+  source_content_type: string
+  content_hash: string
+  llm_provider: string
+  llm_model: string | null
+  extracted_data: ExtractedDraftData | null
+  field_confidence: InvoiceDraftFieldConfidence | null
+  validation_flags: InvoiceDraftValidationFlags | null
+  reviewed_at: string | null
+  resulting_invoice_id: string | null
+  error_message: string | null
+  created_at: string
+  updated_at: string
 }
