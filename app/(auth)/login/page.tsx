@@ -17,17 +17,18 @@ export default function LoginPage() {
   const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [companyName, setCompanyName] = useState('')
-  const [businessId, setBusinessId] = useState('')
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [confirmationSent, setConfirmationSent] = useState(false)
+  const [resending, setResending] = useState(false)
 
   const switchMode = (next: Mode) => {
     setMode(next)
     setError(null)
     setMessage(null)
+    setConfirmationSent(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -45,38 +46,68 @@ export default function LoginPage() {
         router.refresh()
       }
     } else {
-      if (!companyName.trim()) {
-        setError('Yrityksen nimi on pakollinen.')
-        setLoading(false)
-        return
-      }
       if (!termsAccepted) {
         setError('Hyväksy käyttöehdot jatkaaksesi.')
         setLoading(false)
         return
       }
 
-      const { error } = await supabase.auth.signUp({
+      // Yritys-/henkilötiedot (nimi, Y-tunnus, toimiala, maa, valuutta)
+      // kysytään /onboarding-sivulla sähköpostivahvistuksen jälkeen —
+      // ei täällä. Aiemmin tämä lomake keräsi "Yrityksen nimen" jo
+      // tässä vaiheessa ja /auth/callback loi organisaation suoraan
+      // sen perusteella, mikä ohitti /onboarding-sivun kokonaan eikä
+      // koskaan kysynyt toimialaa/maata/valuuttaa — ja pakotti myös
+      // Y-tunnuksettomat kevytyrittäjät kirjoittamaan oman nimensä
+      // "Yrityksen nimi" -kenttään. Yksi lomake, oikeat kentät,
+      // molemmille kohderyhmille (ks. onboarding-sivun kenttien
+      // haarautus tili tyypin mukaan).
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${location.origin}/auth/callback`,
-          data: {
-            company_name: companyName.trim(),
-            business_id: businessId.trim() || null,
-          },
         },
       })
       if (error) {
         setError(error.message)
+      } else if (data.session) {
+        // Projektin Auth-asetuksissa "Confirm email" on pois päältä
+        // (autoconfirm) — signUp() palauttaa silloin jo voimassa
+        // olevan sessionin eikä mitään vahvistusviestiä koskaan
+        // lähetetä. Aiemmin tämä haara ei tarkistanut sitä lainkaan
+        // ja näytti "tarkista sähköpostisi" -viestin joka tapauksessa,
+        // jolloin käyttäjä jäi odottamaan sähköpostia jota ei koskaan
+        // tule eikä koskaan päässyt /onboarding-sivulle asti, vaikka
+        // oli jo kirjautuneena sisään. (dashboard)/layout.tsx ohjaa jo
+        // /onboarding-sivulle kun organisaatiota ei löydy.
+        router.push('/')
+        router.refresh()
       } else {
         setMessage(
           'Tarkista sähköpostisi ja vahvista rekisteröityminen. Löydät viestin myös roskapostista.'
         )
+        setConfirmationSent(true)
       }
     }
 
     setLoading(false)
+  }
+
+  // Vahvistusviesti kulkee Supabase Authin oman postituksen kautta
+  // (ei Resendin), ja Supabasen oletuslähetys voi olla hidas tai
+  // rajoitettu — uudelleenlähetys auttaa jos viestiä ei kuulu.
+  const handleResendConfirmation = async () => {
+    if (!email.trim()) return
+    setResending(true)
+    setError(null)
+    const { error } = await supabase.auth.resend({ type: 'signup', email })
+    if (error) {
+      setError(error.message)
+    } else {
+      setMessage('Vahvistusviesti lähetetty uudelleen. Tarkista sähköpostisi ja roskaposti.')
+    }
+    setResending(false)
   }
 
   return (
@@ -111,36 +142,6 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === 'signup' && (
-            <>
-              <div>
-                <label className="block text-sm text-zinc-400 mb-1.5">
-                  Yrityksen nimi <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  className={INPUT}
-                  placeholder="Oma Yritys Oy"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-zinc-400 mb-1.5">
-                  Y-tunnus <span className="text-zinc-600 text-xs">(valinnainen)</span>
-                </label>
-                <input
-                  type="text"
-                  value={businessId}
-                  onChange={(e) => setBusinessId(e.target.value)}
-                  className={INPUT}
-                  placeholder="1234567-8"
-                />
-              </div>
-            </>
-          )}
-
           <div>
             <label className="block text-sm text-zinc-400 mb-1.5">Sähköposti</label>
             <input
@@ -149,7 +150,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={INPUT}
-              placeholder="sinä@yritys.fi"
+              placeholder="sinä@esimerkki.fi"
             />
           </div>
 
@@ -167,24 +168,30 @@ export default function LoginPage() {
           </div>
 
           {mode === 'signup' && (
-            <label className="flex items-start gap-2.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={termsAccepted}
-                onChange={(e) => setTermsAccepted(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded accent-green-500 shrink-0"
-              />
-              <span className="text-xs text-zinc-400 leading-relaxed">
-                Olen lukenut ja hyväksyn{' '}
-                <Link
-                  href="/terms"
-                  target="_blank"
-                  className="text-green-400 hover:text-green-300 underline underline-offset-2"
-                >
-                  käyttöehdot
-                </Link>
-              </span>
-            </label>
+            <>
+              <p className="text-xs text-zinc-500 -mt-1">
+                Kysymme nimesi (tai yrityksesi nimen) ja muut tiedot heti kun
+                olet vahvistanut sähköpostisi.
+              </p>
+              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded accent-green-500 shrink-0"
+                />
+                <span className="text-xs text-zinc-400 leading-relaxed">
+                  Olen lukenut ja hyväksyn{' '}
+                  <Link
+                    href="/terms"
+                    target="_blank"
+                    className="text-green-400 hover:text-green-300 underline underline-offset-2"
+                  >
+                    käyttöehdot
+                  </Link>
+                </span>
+              </label>
+            </>
           )}
 
           {error && (
@@ -194,8 +201,18 @@ export default function LoginPage() {
           )}
 
           {message && (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2.5 text-sm text-green-400">
-              {message}
+            <div className="bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2.5 text-sm text-green-400 space-y-2">
+              <p>{message}</p>
+              {confirmationSent && (
+                <button
+                  type="button"
+                  onClick={handleResendConfirmation}
+                  disabled={resending}
+                  className="text-xs text-green-300 hover:underline disabled:opacity-50"
+                >
+                  {resending ? 'Lähetetään uudelleen...' : 'Eikö viesti tullut? Lähetä uudelleen'}
+                </button>
+              )}
             </div>
           )}
 
