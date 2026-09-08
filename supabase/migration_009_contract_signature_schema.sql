@@ -68,6 +68,13 @@ CREATE POLICY "contract_templates: authenticated read"
 -- lisätään käsin SQL-editorissa (sama malli kuin jp_vat_rules /
 -- jp_addon_services-viitedatan siemennys).
 
+-- RLS-käytäntö ei riitä yksin — Postgres tarkistaa perus-GRANTin
+-- ENNEN kuin RLS-lauseke edes arvioidaan, joten ilman tätä
+-- authenticated-rooli saa "permission denied for table" -virheen
+-- käytännöstä riippumatta. Sama malli kuin migration_002:n
+-- jp_addon_services.
+GRANT SELECT ON public.jp_contract_templates TO authenticated;
+
 -- ----------------------------------------------------------------
 -- 3) jp_contract_signatures — todiste allekirjoituksesta
 -- ----------------------------------------------------------------
@@ -121,6 +128,16 @@ CREATE POLICY "contract_signatures: org-omistaja voi aloittaa"
     org_id IN (SELECT id FROM public.jp_organizations WHERE owner_user_id = auth.uid())
   );
 
+-- Sama huomio kuin jp_contract_templatesilla: RLS ei korvaa perus-
+-- GRANTia. authenticated saa vain sen minkä yllä olevat käytännöt
+-- muutenkin sallisivat (SELECT omaan orgiin, INSERT aloittaakseen);
+-- service_role tarvitsee SELECT+UPDATE, koska webhook-käsittelijä
+-- (lib/supabase/service.ts) etsii rivin provider_document_id:llä ja
+-- päivittää sen status='signed' saatuaan Bink-webhookin — se ohittaa
+-- RLS:n (rolbypassrls), muttei perus-GRANTin tarvetta.
+GRANT SELECT, INSERT ON public.jp_contract_signatures TO authenticated;
+GRANT SELECT, UPDATE ON public.jp_contract_signatures TO service_role;
+
 -- ----------------------------------------------------------------
 -- 4) jp_webhook_dedupe — estää Bink-webhookin uudelleenyritysten
 --    (max 3, ks. heidän dokumentaationsa) käsittelemisen kahdesti
@@ -145,6 +162,13 @@ ALTER TABLE public.jp_webhook_dedupe ENABLE ROW LEVEL SECURITY;
 -- Ei policyja lainkaan: default-deny kaikelta paitsi service-role-
 -- yhteydeltä, joka ohittaa RLS:n. Tähän ei koskaan pitäisi kirjoittaa
 -- suoraan clientistä.
+
+-- rolbypassrls ohittaa RLS:n mutta ei perus-GRANTin tarvetta — ilman
+-- tätä webhook-käsittelijän dedupe-tarkistus/-kirjaus epäonnistuisi
+-- "permission denied" -virheeseen jokaisella Bink-webhook-kutsulla.
+-- Ei GRANTia authenticated-roolille: tähän ei koskaan pitäisi
+-- kirjoittaa clientistä, ks. yllä.
+GRANT SELECT, INSERT, UPDATE ON public.jp_webhook_dedupe TO service_role;
 
 -- ----------------------------------------------------------------
 -- 5) jp_organizations.contract_signed_at + suojaustriggeri
@@ -177,6 +201,13 @@ CREATE TRIGGER jp_organizations_protect_contract_signed_at
   BEFORE UPDATE ON public.jp_organizations
   FOR EACH ROW
   EXECUTE FUNCTION public.protect_contract_signed_at();
+
+-- migration_001 never granted service_role any base privilege on
+-- jp_organizations (it had never needed to write here before this
+-- feature). The trigger above already restricts which role may
+-- change contract_signed_at; this is the separate, lower-level
+-- privilege service_role needs just to run an UPDATE at all.
+GRANT UPDATE ON public.jp_organizations TO service_role;
 
 -- Tämä migraatio päättyy tähän tarkoituksella. Sopimusportin
 -- todellinen esto (RLS jp_customers/jp_invoices/jp_invoice_lines/
