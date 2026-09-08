@@ -10,28 +10,16 @@ export async function GET(request: Request) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (user) {
-        const { data: existingOrg } = await supabase
-          .from('jp_organizations')
-          .select('id')
-          .eq('owner_user_id', user.id)
-          .maybeSingle()
-
-        if (!existingOrg && user.user_metadata?.company_name) {
-          await supabase.from('jp_organizations').insert({
-            owner_user_id: user.id,
-            name: user.user_metadata.company_name as string,
-            business_id: (user.user_metadata.business_id as string) || null,
-            country: 'FI',
-            currency: 'EUR',
-          })
-        }
-      }
-
+      // Organisaation luonti tapahtuu /onboarding-sivulla, ei täällä.
+      // Aiemmin tämä reitti loi jp_organizations-rivin suoraan
+      // signup-lomakkeen user_metadata.company_name:n perusteella,
+      // mikä ohitti /onboarding:n kokonaan — käyttäjä ei koskaan
+      // päässyt valitsemaan toimialaa/maata/valuuttaa, ja Y-tunnuk-
+      // settomat kevytyrittäjät joutuivat kirjoittamaan oman nimensä
+      // "Yrityksen nimi" -kenttään signup-vaiheessa. (dashboard)/
+      // layout.tsx ohjaa jo automaattisesti /onboarding-sivulle kun
+      // organisaatiota ei löydy, joten pelkkä uudelleenohjaus tänne
+      // riittää — /onboarding hoitaa loput.
       return NextResponse.redirect(`${origin}${next}`)
     }
   }
