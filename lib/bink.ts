@@ -72,7 +72,13 @@ export async function createSigningDocument(params: {
   form.append('file', new Blob([Uint8Array.from(params.fileBuffer)]), params.fileName)
   form.append('title', params.title)
   form.append('tenantId', tenantId())
-  form.append('signingMethod', 'strong')
+  // TEMPORARY DIAGNOSTIC — switched from 'strong' to isolate the 403 on
+  // quick-create: if 'email' succeeds where 'strong' didn't, the account
+  // is provisioned for document creation at all and the 403 is specific
+  // to the strong-tunnistautuminen tier/permission, not a tenant/key
+  // problem. MUST REVERT to 'strong' after this one test regardless of
+  // outcome — this app only ever uses strong signing for real.
+  form.append('signingMethod', 'email')
   if (params.signingMessage) form.append('signingMessage', params.signingMessage)
   if (params.emailLanguage) form.append('emailLanguage', params.emailLanguage)
   form.append('signees', JSON.stringify([params.signee]))
