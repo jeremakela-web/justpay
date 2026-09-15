@@ -72,7 +72,16 @@ export async function createSigningDocument(params: {
   form.append('file', new Blob([Uint8Array.from(params.fileBuffer)]), params.fileName)
   form.append('title', params.title)
   form.append('tenantId', tenantId())
-  form.append('signingMethod', 'strong')
+  // TEMPORARY DIAGNOSTIC — switched from 'strong' to 'email' for one
+  // real end-to-end test (quick-create -> send-for-signing -> webhook
+  // -> contract_signed_at) using the account's 2 free light-tier
+  // credits, since strong tunnistautuminen is a separate paid credit
+  // pool (EUR 0.70/each, confirmed empty — that's the 400 "Not enough
+  // signature credits" this replaces). MUST REVERT to 'strong' right
+  // after this one test regardless of outcome — this app only ever
+  // uses strong signing for real, light is not an acceptable
+  // substitute for production.
+  form.append('signingMethod', 'email')
   if (params.signingMessage) form.append('signingMessage', params.signingMessage)
   if (params.emailLanguage) form.append('emailLanguage', params.emailLanguage)
   form.append('signees', JSON.stringify([params.signee]))
