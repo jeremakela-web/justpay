@@ -69,8 +69,17 @@ export async function POST(request: NextRequest) {
       await sendForSigning(existing.provider_document_id)
     } catch (err) {
       console.error('Bink resend send-for-signing failed:', err)
+      // TEMPORARY — same debug surfacing as the fresh-creation path
+      // below, added here too since this is a genuinely separate code
+      // branch (resend an existing jp_contract_signatures row instead
+      // of quick-create-ing a new one) that was missing it. REVERT
+      // together with the other debug surfacing once no longer needed.
+      const debugDetail = err instanceof Error ? err.message : String(err)
       return NextResponse.json(
-        { error: 'Allekirjoituskutsun uudelleenlähetys epäonnistui. Yritä myöhemmin uudelleen.' },
+        {
+          error: 'Allekirjoituskutsun uudelleenlähetys epäonnistui. Yritä myöhemmin uudelleen.',
+          debug: debugDetail,
+        },
         { status: 502 }
       )
     }
