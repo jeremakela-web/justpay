@@ -612,7 +612,13 @@
 // ==================== SLIDESHOW (same improved logic) ====================
 const slides = [
   { label: 'Kodinsiivous', img: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=1600&q=85&fm=jpg' },
-  { label: 'Autopesu', img: 'https://images.unsplash.com/photo-1605618826115-fb9e775906f5?w=1600&q=85&fm=jpg' },
+  // Hosted locally (public/images/autopesu.jpg) rather than hotlinked —
+  // the original Unsplash URL for this slide 404'd in production
+  // (photo-1605618826115-fb9e775906f5, removed/deleted upstream at some
+  // point after this was written). The other 5 slides are still
+  // hotlinked to Unsplash and carry the same risk; not fixed here, only
+  // this one was reported broken.
+  { label: 'Autopesu', img: '/images/autopesu.jpg' },
   { label: 'Kodinkorjaus', img: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=1600&q=85&fm=jpg' },
   { label: 'Pihatyöt', img: 'https://images.unsplash.com/photo-1558904541-efa843a96f01?w=1600&q=85&fm=jpg' },
   { label: 'Muutto', img: 'https://images.unsplash.com/photo-1600518464441-9154a4dea21b?w=1600&q=85&fm=jpg' },
