@@ -7,6 +7,17 @@ import { createClient } from '@/lib/supabase/client'
 export default function ContractPage() {
   const router = useRouter()
   const supabase = createClient()
+  // TEMPORARY — forwards ?force=true from this page's own URL to the
+  // API call, so visiting /contract?force=true and submitting normally
+  // is enough to trigger a fresh Bink document instead of resending a
+  // stuck one. See the matching TODO in app/api/contract/start/route.ts.
+  // Read directly off window.location rather than next/navigation's
+  // useSearchParams(), which requires a <Suspense> boundary around any
+  // page that uses it — not worth restructuring this page for a
+  // temporary debug flag.
+  const [force] = useState(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('force') === 'true'
+  )
 
   const [pic, setPic] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -47,7 +58,7 @@ export default function ContractPage() {
     setError(null)
 
     try {
-      const res = await fetch('/api/contract/start', {
+      const res = await fetch(`/api/contract/start${force ? '?force=true' : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pic: pic.trim() }),

@@ -52,6 +52,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, alreadySigned: true })
   }
 
+  // TEMPORARY DIAGNOSTIC — ?force=true skips the resend branch below
+  // and always quick-creates a brand-new Bink document instead. Added
+  // specifically because an earlier signingMethod:'strong' attempt got
+  // stuck as an existing jp_contract_signatures row whose Bink document
+  // needs strong-tier credits (account balance: 0) to resend — without
+  // this, every retry keeps hitting that same stuck document forever,
+  // even while testing the light/email tier, which has free credits.
+  //
+  // Deliberately gated on Netlify's own CONTEXT rather than NODE_ENV:
+  // `next build` always sets NODE_ENV=production, including on
+  // deploy previews, so a NODE_ENV check would have disabled this
+  // exactly where it's needed right now. CONTEXT correctly
+  // distinguishes 'production' from 'deploy-preview'/'branch-deploy'/
+  // 'dev' (https://docs.netlify.com/configure-builds/environment-variables/#build-metadata).
+  //
+  // TODO: remove this whole `force` block (or lock it behind an
+  // explicit admin-only check) before migration_010 runs and before
+  // real production use — every forced call burns a real Bink
+  // document, and on the strong tier a real paid credit. Left
+  // unguarded, a repeated/scripted call to this endpoint could run up
+  // a real bill.
+  const force = request.nextUrl.searchParams.get('force') === 'true'
+  if (force && process.env.CONTEXT === 'production') {
+    return NextResponse.json(
+      { error: 'force ei ole sallittu tuotannossa.' },
+      { status: 403 }
+    )
+  }
+
   // If a signing attempt is already in progress for this org, resend
   // the invite instead of creating a second Bink document (and
   // burning a second signature credit) for a repeated click.
@@ -64,7 +93,7 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle()
 
-  if (existing && existing.status !== 'signed') {
+  if (existing && existing.status !== 'signed' && !force) {
     try {
       await sendForSigning(existing.provider_document_id)
     } catch (err) {
@@ -84,6 +113,24 @@ export async function POST(request: NextRequest) {
       )
     }
     return NextResponse.json({ success: true, resent: true })
+  }
+
+  if (existing && existing.status !== 'signed' && force) {
+    // Mark the stale row as superseded rather than leaving it an
+    // orphan with no record of why it stopped being the active
+    // attempt. Repurposes the 'draft' status value: it's part of the
+    // CHECK constraint (migration_009) but never actually set by the
+    // normal flow (which goes straight to 'in_process'), so reusing it
+    // here as "no longer current" doesn't collide with anything and
+    // avoids a schema migration while migration_010 stays frozen and
+    // DB changes are being kept to a minimum.
+    const { error: supersedeErr } = await supabase
+      .from('jp_contract_signatures')
+      .update({ status: 'draft', updated_at: new Date().toISOString() })
+      .eq('id', existing.id)
+    if (supersedeErr) {
+      console.error('Failed to mark stale jp_contract_signatures row as superseded:', supersedeErr)
+    }
   }
 
   const { data: template, error: templateErr } = await supabase
@@ -133,7 +180,11 @@ export async function POST(request: NextRequest) {
       org_id: org.id,
       contract_version: template.version,
       provider: 'bink',
-      method: 'strong',
+      // TEMPORARY — 'light' while lib/bink.ts is temporarily sending
+      // Bink signingMethod:'email' for the credit-balance test. Must
+      // flip back to 'strong' together with that revert, or this row
+      // would falsely record a light-tier document as strong.
+      method: 'light',
       provider_document_id: created.document.id,
       status: 'in_process',
     })
