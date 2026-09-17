@@ -7,18 +7,6 @@ import { createClient } from '@/lib/supabase/client'
 export default function ContractPage() {
   const router = useRouter()
   const supabase = createClient()
-  // TEMPORARY — forwards ?force=true from this page's own URL to the
-  // API call, so visiting /contract?force=true and submitting normally
-  // is enough to trigger a fresh Bink document instead of resending a
-  // stuck one. See the matching TODO in app/api/contract/start/route.ts.
-  // Read directly off window.location rather than next/navigation's
-  // useSearchParams(), which requires a <Suspense> boundary around any
-  // page that uses it — not worth restructuring this page for a
-  // temporary debug flag.
-  const [force] = useState(
-    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('force') === 'true'
-  )
-
   const [pic, setPic] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +44,21 @@ export default function ContractPage() {
     e.preventDefault()
     setSubmitting(true)
     setError(null)
+
+    // TEMPORARY — forwards ?force=true from this page's own URL to the
+    // API call, so visiting /contract?force=true and submitting normally
+    // is enough to trigger a fresh Bink document instead of resending a
+    // stuck one. See the matching TODO in app/api/contract/start/route.ts.
+    // Read directly off window.location, and only here at submit time —
+    // a mount-time useState(() => ...) initializer runs exactly once and
+    // never re-evaluates, so it can go stale on a same-route client-side
+    // navigation (e.g. reaching this URL by following a link to /contract
+    // rather than a hard reload) even though the address bar is correct.
+    // Reading it fresh on every submit avoids that entirely. Not using
+    // next/navigation's useSearchParams() since that requires a
+    // <Suspense> boundary around any page that uses it — not worth
+    // restructuring this page for a temporary debug flag.
+    const force = new URLSearchParams(window.location.search).get('force') === 'true'
 
     try {
       const res = await fetch(`/api/contract/start${force ? '?force=true' : ''}`, {
