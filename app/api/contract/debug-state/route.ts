@@ -2,18 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
 // TEMPORARY — one-shot diagnostic for the force=true investigation.
-// Gated on a secret we already have configured for this app
-// (BINK_WEBHOOK_SECRET) plus the same CONTEXT !== 'production' guard
-// used by the force flag in app/api/contract/start/route.ts, so this
-// never becomes a real endpoint. DELETE after the investigation.
-export async function GET(request: NextRequest) {
+// Gated the same way the force flag itself is (CONTEXT !== 'production'
+// in app/api/contract/start/route.ts) — no separate secret available to
+// gate on without printing it. DELETE after the investigation.
+export async function GET(_request: NextRequest) {
   if (process.env.CONTEXT === 'production') {
     return NextResponse.json({ error: 'not available in production' }, { status: 403 })
-  }
-
-  const key = request.nextUrl.searchParams.get('key')
-  if (!key || key !== process.env.BINK_WEBHOOK_SECRET) {
-    return NextResponse.json({ error: 'not found' }, { status: 404 })
   }
 
   const supabase = createServiceClient()
