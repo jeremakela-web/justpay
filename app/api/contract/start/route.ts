@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createSigningDocument, sendForSigning } from '@/lib/bink'
+import { createSigningDocument, sendForSigning, getDocument } from '@/lib/bink'
 
 // Very loose Finnish henkilötunnus format check (DDMMYY + century
 // separator + 3 digits + checksum char) — catches obvious typos
@@ -93,7 +93,48 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle()
 
+  // Our own status column only ever gets updated by the webhook, which
+  // depends on Bink successfully delivering the event AND our handler
+  // processing it — either can silently fail (delivery never arrives,
+  // signature check fails, a bug in the handler, etc.), leaving this
+  // row stuck at 'in_process' even though Bink itself considers the
+  // document fully signed. Left unchecked, that stuck row makes every
+  // subsequent visit try to resend a document Bink now refuses to
+  // touch (it 500s with "Failed to prepare document for signing"
+  // instead of the normal resend response), which is confusing to a
+  // user who already finished signing. Ask Bink directly before
+  // deciding what to do, and self-heal if it disagrees with us.
   if (existing && existing.status !== 'signed' && !force) {
+    try {
+      const liveDoc = await getDocument(existing.provider_document_id)
+      const liveStatus =
+        (liveDoc as { status?: unknown }).status ??
+        (liveDoc as { document?: { status?: unknown } }).document?.status
+      if (liveStatus === 'signed') {
+        const nowIso = new Date().toISOString()
+        const { error: reconcileErr } = await supabase
+          .from('jp_contract_signatures')
+          .update({ status: 'signed', updated_at: nowIso })
+          .eq('id', existing.id)
+        if (reconcileErr) {
+          console.error('Failed to reconcile signature row to signed (self-heal):', reconcileErr)
+        }
+        const { error: orgReconcileErr } = await supabase
+          .from('jp_organizations')
+          .update({ contract_signed_at: nowIso })
+          .eq('id', org.id)
+        if (orgReconcileErr) {
+          console.error('Failed to reconcile jp_organizations.contract_signed_at (self-heal):', orgReconcileErr)
+        }
+        return NextResponse.json({ success: true, alreadySigned: true })
+      }
+    } catch (err) {
+      // Fail open — if we can't reach Bink to check, fall through to
+      // the existing resend behavior rather than blocking the user on
+      // a diagnostic check that isn't the primary flow.
+      console.error('Bink getDocument status check (pre-resend) failed:', err)
+    }
+
     try {
       await sendForSigning(existing.provider_document_id)
     } catch (err) {
