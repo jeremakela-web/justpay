@@ -13,17 +13,19 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 // client, so an unauthenticated caller can't reach the service-role
 // path just by hitting the endpoint.
 //
-// SUPABASE_SERVICE_ROLE_KEY must be a server-only env var (never
+// SUPABASE_SERVICE_KEY must be a server-only env var (never
 // NEXT_PUBLIC_*) — find it in Supabase dashboard → Project Settings
 // → API → service_role key, and set it in Netlify's environment
-// variables, not committed anywhere.
+// variables, not committed anywhere. Named SUPABASE_SERVICE_KEY (not
+// the more conventional SUPABASE_SERVICE_ROLE_KEY) to match what's
+// actually configured on the Netlify site.
 export function createServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_KEY
 
   if (!url || !serviceRoleKey) {
     throw new Error(
-      'SUPABASE_SERVICE_ROLE_KEY (or NEXT_PUBLIC_SUPABASE_URL) is not set — the contract webhook cannot write signature results without it.'
+      'SUPABASE_SERVICE_KEY (or NEXT_PUBLIC_SUPABASE_URL) is not set — the contract webhook cannot write signature results without it.'
     )
   }
 
