@@ -35,6 +35,17 @@ export async function proxy(request: NextRequest) {
     url.pathname.startsWith('/auth/') ||
     url.pathname.startsWith('/terms')
 
+  // Bink calls this server-to-server with no session cookie at all — the
+  // !user redirect below would send every real webhook delivery straight
+  // to /login, 307, never reaching the route's own signature verification.
+  // Found while diagnosing why a signed document could never actually
+  // land: even a perfect signature confirmation would never have reached
+  // the handler. The route itself is the real gate (HMAC signature check,
+  // service-role client) — this middleware has no business touching it.
+  if (url.pathname === '/api/contract/webhook') {
+    return supabaseResponse
+  }
+
   if (!user && url.pathname === '/') {
     return NextResponse.rewrite(new URL('/landing.html', request.url))
   }

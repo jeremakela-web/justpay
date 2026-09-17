@@ -9,6 +9,10 @@ export interface Organization {
   // Kansallisvarannon palkkio tekijän laskuista, prosentteina verottomasta
   // summasta (ks. migration_007). Oletus 1.00.
   fee_rate_percent: number
+  // Asetetaan VAIN vahvistetun Bink-allekirjoituksen webhookista
+  // (service-role) — suojattu triggerillä muilta kirjoituksilta,
+  // ks. migration_009. NULL kunnes sopimus on allekirjoitettu.
+  contract_signed_at: string | null
   created_at: string
 }
 
@@ -127,5 +131,37 @@ export interface ServiceFeeDocument {
   fee_vat_amount: number
   total_amount: number
   currency: string
+  created_at: string
+}
+
+// Sopimuksen sähköisen allekirjoituksen tila per organisaatio (ks.
+// migration_009). Rivi luodaan (status='in_process') kun tekijä
+// käynnistää allekirjoituksen; vain webhook-käsittelijä (service-role)
+// saa päivittää sen 'signed'-tilaan — tavallinen käyttäjä ei voi
+// muokata omaa riviään enää luonnin jälkeen.
+export interface ContractSignature {
+  id: string
+  org_id: string
+  contract_version: string
+  provider: string
+  method: 'strong' | 'light'
+  provider_document_id: string
+  status: 'draft' | 'in_process' | 'signed'
+  verified_name: string | null
+  verified_identity: Record<string, unknown> | null
+  signer_ip: string | null
+  signed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// Voimassa oleva sopimuspohja Supabase Storagessa (ks. migration_009).
+// Uusi versio lisätään käsin SQL:llä kun lakimies päivittää tekstin.
+export interface ContractTemplate {
+  id: string
+  version: string
+  storage_path: string
+  content_type: string
+  is_active: boolean
   created_at: string
 }
